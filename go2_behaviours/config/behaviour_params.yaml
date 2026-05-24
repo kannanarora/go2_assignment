@@ -1,0 +1,24 @@
+behaviour_planner_node:
+  ros__parameters:
+    planned_behaviour_topic: /planned_behaviour
+    auto_publish: false
+    default_behaviour: stand
+    period_s: 5.0
+
+behaviour_executor_node:
+  ros__parameters:
+    planned_behaviour_topic: /planned_behaviour
+    trigger_behaviour_topic: /trigger_behaviour
+
+safety_monitor_node:
+  ros__parameters:
+    stop_topic: /safety_stop
+    trigger_behaviour_topic: /trigger_behaviour
+    safety_command: lie_down
+
+sit_stand_loop_node:
+  ros__parameters:
+    stand_api_id: 1004
+    sit_api_id: 1009
+    period_s: 4.0
+    start_with_stand: true

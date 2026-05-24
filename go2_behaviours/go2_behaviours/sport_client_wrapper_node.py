@@ -29,25 +29,39 @@ class SportClientWrapperNode(Node):
     def __init__(self):
         super().__init__('sport_client_wrapper_node')
 
+        self.trigger_topic = '/trigger_behaviour'
+        self.request_topic = '/api/sport/request'
+
         # SUBSCRIBER: listens for behaviour commands from other nodes
         # Any node in the system can send a string here to make the robot move
         self.behaviour_sub = self.create_subscription(
             String,
-            '/trigger_behaviour',       # topic your other nodes publish to
-            self.behaviour_callback,    # function called when a message arrives
-            10                          # queue size
+            self.trigger_topic,
+            self.behaviour_callback,
+            10
         )
 
         # PUBLISHER: sends the actual command to the robot
         # The Go2 listens on /api/sport/request for all movement commands
         self.request_pub = self.create_publisher(
             Request,
-            '/api/sport/request',
+            self.request_topic,
             10
         )
 
+        self.command_handlers = {
+            'stand': lambda: self.send_request(SPORT_API_ID_STAND_UP),
+            'lie_down': lambda: self.send_request(SPORT_API_ID_STAND_DOWN),
+            'stop': lambda: self.send_request(SPORT_API_ID_STOP_MOVE),
+            'sit': lambda: self.send_request(SPORT_API_ID_SIT),
+            'hello': lambda: self.send_request(SPORT_API_ID_HELLO),
+            'walk': lambda: self.send_move_request(vx=0.3, vy=0.0, vyaw=0.0),
+            'turn_left': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=0.5),
+            'turn_right': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=-0.5),
+        }
+
         self.get_logger().info('SportClientWrapperNode is ready.')
-        self.get_logger().info('Listening on /trigger_behaviour ...')
+        self.get_logger().info('Listening on %s ...' % self.trigger_topic)
 
     def behaviour_callback(self, msg: String):
         """
@@ -57,36 +71,12 @@ class SportClientWrapperNode(Node):
         command = msg.data.strip().lower()
         self.get_logger().info(f'Received command: "{command}"')
 
-        # translation table
-        if command == 'stand':
-            self.send_request(SPORT_API_ID_STAND_UP)
+        handler = self.command_handlers.get(command)
+        if handler is None:
+            self.get_logger().warn('Unknown command: "%s" — ignoring.' % command)
+            return
 
-        elif command == 'lie_down':
-            # This is what the safety node will call when someone is too close
-            self.send_request(SPORT_API_ID_STAND_DOWN)
-
-        elif command == 'stop':
-            self.send_request(SPORT_API_ID_STOP_MOVE)
-
-        elif command == 'sit':
-            self.send_request(SPORT_API_ID_SIT)
-
-        elif command == 'hello':
-            self.send_request(SPORT_API_ID_HELLO)
-
-        elif command == 'walk':
-            # Walk forward at 0.3 m/s, no sideways, no rotation
-            # vx=forward speed, vy=sideways speed, vyaw=rotation speed
-            self.send_move_request(vx=0.3, vy=0.0, vyaw=0.0)
-
-        elif command == 'turn_left':
-            self.send_move_request(vx=0.0, vy=0.0, vyaw=0.5)
-
-        elif command == 'turn_right':
-            self.send_move_request(vx=0.0, vy=0.0, vyaw=-0.5)
-
-        else:
-            self.get_logger().warn(f'Unknown command: "{command}" — ignoring.')
+        handler()
 
     def send_request(self, api_id: int, params: dict = None):
         """
@@ -94,21 +84,11 @@ class SportClientWrapperNode(Node):
         api_id: the Unitree sport API ID (e.g. 1004 for StandUp)
         params: optional dict of parameters (used for Move commands)
         """
-        req = Request()
-
-        # the header tells the robot which action to perform
-        req.header.identity.id = self.get_next_id()
-        req.header.identity.api_id = api_id
-
-        # some commands need extra parameters encoded as JSON
-        if params:
-            req.parameter = json.dumps(params)
-        else:
-            req.parameter = ''
-
-        # send it to the robot
+        req = self.build_request(api_id, params)
         self.request_pub.publish(req)
-        self.get_logger().info(f'Sent request: api_id={api_id}, params={params}')
+        self.get_logger().info(
+            'Sent request: api_id=%d, params=%s' % (api_id, params)
+        )
 
     def send_move_request(self, vx: float, vy: float, vyaw: float):
         """
@@ -117,8 +97,23 @@ class SportClientWrapperNode(Node):
         vy   = left/right speed (m/s),         positive = left
         vyaw = rotation speed (rad/s),          positive = turn left
         """
-        params = {'x': vx, 'y': vy, 'z': vyaw}
+        params = {'x': float(vx), 'y': float(vy), 'z': float(vyaw)}
         self.send_request(SPORT_API_ID_MOVE, params)
+
+    def build_request(self, api_id: int, params: dict = None) -> Request:
+        req = Request()
+
+        # header fields aligned with the official ROS2 client and CLI examples
+        req.header.identity.id = self.get_next_id()
+        req.header.identity.api_id = int(api_id)
+        req.header.lease.id = 0
+        req.header.policy.priority = 0
+        req.header.policy.noreply = False
+
+        req.parameter = json.dumps(params) if params else ''
+        req.binary = []
+
+        return req
 
     # Simple counter so each request gets a unique ID
     _request_counter = 0
