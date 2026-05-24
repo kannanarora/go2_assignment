@@ -1,7 +1,27 @@
+# ROS 2 / colcon build outputs
 build/
 install/
 log/
-*.pyc
+
+# Python caches and bytecode
 __pycache__/
-.DS_Store
+*.py[cod]
+*.pyc
+*$py.class
+
+# Packaging artifacts
+*.egg-info/
+.eggs/
+dist/
+
+# Test/cache tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editor/system files
 .vscode/
+.idea/
+.DS_Store
