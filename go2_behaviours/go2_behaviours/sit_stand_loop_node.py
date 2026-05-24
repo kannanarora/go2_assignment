@@ -1,5 +1,5 @@
 """
-Publishes a lie-down/stand loop to the sport client wrapper.
+Publishes a stand -> rotate -> lie-down loop to the sport client wrapper.
 """
 
 import rclpy
@@ -15,8 +15,10 @@ class SitStandLoopNode(Node):
         self.command_pub = self.create_publisher(String, self.trigger_topic, 10)
 
         self.period_s = float(self.declare_parameter('period_s', 3.0).value)
+        self.rotate_command = self.declare_parameter('rotate_command', 'turn_left').value
 
-        self._next_is_stand = False
+        self._sequence = ['stand', str(self.rotate_command), 'lie_down']
+        self._index = 0
 
         self.timer = self.create_timer(self.period_s, self.timer_callback)
         self.get_logger().info(
@@ -25,15 +27,11 @@ class SitStandLoopNode(Node):
         )
 
     def timer_callback(self):
-        if self._next_is_stand:
-            command = 'stand'
-        else:
-            command = 'lie_down'
-
+        command = self._sequence[self._index]
         self.publish_command(command)
         self.get_logger().info('Sent command: %s' % command)
 
-        self._next_is_stand = not self._next_is_stand
+        self._index = (self._index + 1) % len(self._sequence)
 
     def publish_command(self, command: str):
         msg = String()
