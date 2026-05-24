@@ -23,6 +23,8 @@ SPORT_API_ID_STOP_MOVE     = 1003
 SPORT_API_ID_MOVE          = 1008   # walk: needs vx, vy, vyaw params
 SPORT_API_ID_SIT            = 1009
 SPORT_API_ID_HELLO          = 1016  # wave hello
+SPORT_API_ID_BALANCE_STAND  = 1002
+SPORT_API_ID_SWITCH_JOYSTICK = 1027
 
 
 class SportClientWrapperNode(Node):
@@ -51,6 +53,7 @@ class SportClientWrapperNode(Node):
 
         self.command_handlers = {
             'stand': lambda: self.send_request(SPORT_API_ID_STAND_UP),
+            'balance_stand': lambda: self.send_request(SPORT_API_ID_BALANCE_STAND),
             'lie_down': lambda: self.send_request(SPORT_API_ID_STAND_DOWN),
             'stop': lambda: self.send_request(SPORT_API_ID_STOP_MOVE),
             'sit': lambda: self.send_request(SPORT_API_ID_SIT),
@@ -58,6 +61,12 @@ class SportClientWrapperNode(Node):
             'walk': lambda: self.send_move_request(vx=0.3, vy=0.0, vyaw=0.0),
             'turn_left': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=0.5),
             'turn_right': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=-0.5),
+            'joystick_on': lambda: self.send_request(
+                SPORT_API_ID_SWITCH_JOYSTICK, {'flag': True}
+            ),
+            'joystick_off': lambda: self.send_request(
+                SPORT_API_ID_SWITCH_JOYSTICK, {'flag': False}
+            ),
         }
 
         self.get_logger().info('SportClientWrapperNode is ready.')
