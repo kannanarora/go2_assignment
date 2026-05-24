@@ -29,8 +29,12 @@ class SitStandLoopNode(Node):
         self.use_balance_stand = bool(
             self.declare_parameter('use_balance_stand', True).value
         )
+        self.balance_wait_s = float(self.declare_parameter('balance_wait_s', 1.0).value)
         self.enable_joystick_on = bool(
             self.declare_parameter('enable_joystick_on', True).value
+        )
+        self.joystick_before_rotate = bool(
+            self.declare_parameter('joystick_before_rotate', True).value
         )
 
         self._state = 'stand'
@@ -51,14 +55,28 @@ class SitStandLoopNode(Node):
         if self._state == 'stand':
             self.publish_command('stand')
             self.get_logger().info('Sent command: stand')
-            if self.use_balance_stand:
-                self.publish_command('balance_stand')
-                self.get_logger().info('Sent command: balance_stand')
             self._state = 'stand_wait'
             self._state_deadline = now + self.stand_wait_s
             return
 
         if self._state == 'stand_wait':
+            if now >= self._state_deadline:
+                if self.enable_joystick_on and self.joystick_before_rotate:
+                    self.publish_command('joystick_on')
+                    self.get_logger().info('Sent command: joystick_on')
+                if self.use_balance_stand:
+                    self.publish_command('balance_stand')
+                    self.get_logger().info('Sent command: balance_stand')
+                    self._state = 'balance_wait'
+                    self._state_deadline = now + self.balance_wait_s
+                else:
+                    self._state = 'rotate'
+                    self._state_deadline = now + self.rotate_duration_s
+                    self._next_rotate_publish = 0.0
+                    self._rotate_sent = 0
+            return
+
+        if self._state == 'balance_wait':
             if now >= self._state_deadline:
                 self._state = 'rotate'
                 self._state_deadline = now + self.rotate_duration_s
