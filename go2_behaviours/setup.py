@@ -1,3 +1,6 @@
+import os
+from glob import glob
+
 from setuptools import setup
 
 package_name = 'go2_behaviours'
@@ -10,6 +13,8 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
+        (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -21,6 +26,7 @@ setup(
             'safety_monitor_node = go2_behaviours.safety_monitor_node:main',
             'behaviour_executor_node = go2_behaviours.behaviour_executor_node:main',
             'behaviour_planner_node = go2_behaviours.behaviour_planner_node:main',
+            'sit_stand_loop_node = go2_behaviours.sit_stand_loop_node:main',
         ],
     },
 )
