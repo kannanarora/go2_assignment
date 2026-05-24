@@ -28,6 +28,9 @@ class SitStandLoopNode(Node):
         self.use_balance_stand = bool(
             self.declare_parameter('use_balance_stand', False).value
         )
+        self.enable_joystick_on = bool(
+            self.declare_parameter('enable_joystick_on', True).value
+        )
 
         self._state = 'stand'
         self._state_deadline = 0.0
@@ -49,9 +52,15 @@ class SitStandLoopNode(Node):
             if self.use_balance_stand:
                 self.publish_command('balance_stand')
                 self.get_logger().info('Sent command: balance_stand')
-            self._state = 'rotate'
-            self._state_deadline = now + self.rotate_duration_s
-            self._next_rotate_publish = 0.0
+            self._state = 'stand_wait'
+            self._state_deadline = now + self.stand_wait_s
+            return
+
+        if self._state == 'stand_wait':
+            if now >= self._state_deadline:
+                self._state = 'rotate'
+                self._state_deadline = now + self.rotate_duration_s
+                self._next_rotate_publish = 0.0
             return
 
         if self._state == 'rotate':
@@ -79,6 +88,9 @@ class SitStandLoopNode(Node):
 
         if self._state == 'lie_down_wait':
             if now >= self._state_deadline:
+                if self.enable_joystick_on:
+                    self.publish_command('joystick_on')
+                    self.get_logger().info('Sent command: joystick_on')
                 self._state = 'stand'
             return
 
