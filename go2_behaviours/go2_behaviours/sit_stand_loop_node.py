@@ -20,13 +20,14 @@ class SitStandLoopNode(Node):
         self.rotate_duration_s = float(
             self.declare_parameter('rotate_duration_s', 2.0).value
         )
+        self.rotate_pulses = int(self.declare_parameter('rotate_pulses', 5).value)
         self.rotate_rate_hz = float(
             self.declare_parameter('rotate_rate_hz', 5.0).value
         )
         self.lie_down_wait_s = float(self.declare_parameter('lie_down_wait_s', 3.0).value)
         self.stop_wait_s = float(self.declare_parameter('stop_wait_s', 1.0).value)
         self.use_balance_stand = bool(
-            self.declare_parameter('use_balance_stand', False).value
+            self.declare_parameter('use_balance_stand', True).value
         )
         self.enable_joystick_on = bool(
             self.declare_parameter('enable_joystick_on', True).value
@@ -35,6 +36,7 @@ class SitStandLoopNode(Node):
         self._state = 'stand'
         self._state_deadline = 0.0
         self._next_rotate_publish = 0.0
+        self._rotate_sent = 0
 
         tick_s = max(0.05, 1.0 / max(self.rotate_rate_hz, 1.0))
         self.timer = self.create_timer(tick_s, self.timer_callback)
@@ -61,9 +63,17 @@ class SitStandLoopNode(Node):
                 self._state = 'rotate'
                 self._state_deadline = now + self.rotate_duration_s
                 self._next_rotate_publish = 0.0
+                self._rotate_sent = 0
             return
 
         if self._state == 'rotate':
+            if self._rotate_sent >= max(self.rotate_pulses, 1):
+                self.publish_command('stop')
+                self.get_logger().info('Sent command: stop')
+                self._state = 'stop_wait'
+                self._state_deadline = now + self.stop_wait_s
+                return
+
             if now >= self._state_deadline:
                 self.publish_command('stop')
                 self.get_logger().info('Sent command: stop')
@@ -76,6 +86,7 @@ class SitStandLoopNode(Node):
                 self.publish_command(command)
                 self.get_logger().info('Sent command: %s' % command)
                 self._next_rotate_publish = now + (1.0 / max(self.rotate_rate_hz, 1.0))
+                self._rotate_sent += 1
             return
 
         if self._state == 'stop_wait':
