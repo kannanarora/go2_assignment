@@ -58,9 +58,9 @@ class SportClientWrapperNode(Node):
             'stop': lambda: self.send_request(SPORT_API_ID_STOP_MOVE),
             'sit': lambda: self.send_request(SPORT_API_ID_SIT),
             'hello': lambda: self.send_request(SPORT_API_ID_HELLO),
-            'walk': lambda: self.send_move_request(vx=0.3, vy=0.0, vyaw=0.0),
-            'turn_left': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=0.5),
-            'turn_right': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=-0.5),
+            'walk': lambda: self.send_move_request(vx=0.15, vy=0.0, vyaw=0.0),   # reduced for testing
+            'turn_left': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=0.25),  # reduced for testing
+            'turn_right': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=-0.25),  # reduced for testing
             'joystick_on': lambda: self.send_request(
                 SPORT_API_ID_SWITCH_JOYSTICK, {'flag': True}
             ),
