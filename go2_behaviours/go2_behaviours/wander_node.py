@@ -27,7 +27,6 @@ class WanderNode(Node):
         self.max_move_distance = 1.0
         self.move_speed = 0.3
         self.turn_speed = 1.0
-        self.action_rate_hz = 1.0
 
         # commands
         self.move_commands = ['forward'] # TODO add more
@@ -45,7 +44,8 @@ class WanderNode(Node):
         self._state = 'sit'
         self._deadline = 0.0
 
-        tick_s = max(0.05, 1.0 / max(self.action_rate_hz, 1.0))
+        # how often to check if we should change action (seconds)
+        tick_s = 5.0
         self.timer = self.create_timer(tick_s, self.timer_callback)
         self.get_logger().info('WanderNode ready. Publishing to %s.' % self.trigger_topic)
 
