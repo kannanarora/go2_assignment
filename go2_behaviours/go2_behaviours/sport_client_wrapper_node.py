@@ -22,6 +22,7 @@ SPORT_API_ID_STAND_DOWN    = 1005   # lie down / safe position
 SPORT_API_ID_STOP_MOVE     = 1003
 SPORT_API_ID_MOVE          = 1008   # walk: needs vx, vy, vyaw params
 SPORT_API_ID_SIT            = 1009
+SPORT_API_ID_RISE_SIT       = 1010
 SPORT_API_ID_HELLO          = 1016  # wave hello
 SPORT_API_ID_BALANCE_STAND  = 1002
 SPORT_API_ID_SWITCH_JOYSTICK = 1027
@@ -57,6 +58,7 @@ class SportClientWrapperNode(Node):
             'lie_down': lambda: self.send_request(SPORT_API_ID_STAND_DOWN),
             'stop': lambda: self.send_request(SPORT_API_ID_STOP_MOVE),
             'sit': lambda: self.send_request(SPORT_API_ID_SIT),
+            'rise_sit': lambda: self.send_request(SPORT_API_ID_RISE_SIT),
             'hello': lambda: self.send_request(SPORT_API_ID_HELLO),
             'walk': lambda: self.send_move_request(vx=0.3, vy=0.0, vyaw=0.0),
             'turn_left': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=0.5),

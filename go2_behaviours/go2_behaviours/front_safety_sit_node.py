@@ -21,6 +21,8 @@ class FrontSafetySitNode(Node):
         self.clear_threshold_m = float(
             self.declare_parameter('clear_threshold_m', 0.20).value
         )
+        self.sit_command = self.declare_parameter('sit_command', 'sit').value
+        self.stand_command = self.declare_parameter('stand_command', 'rise_sit').value
 
         self._is_sitting = False
 
@@ -43,12 +45,12 @@ class FrontSafetySitNode(Node):
             return
 
         if min_range < self.sit_threshold_m and not self._is_sitting:
-            self.publish_command('sit')
+            self.publish_command(self.sit_command)
             self._is_sitting = True
             return
 
         if min_range > self.clear_threshold_m and self._is_sitting:
-            self.publish_command('stand')
+            self.publish_command(self.stand_command)
             self._is_sitting = False
 
     def get_min_range(self, msg: LaserScan):
