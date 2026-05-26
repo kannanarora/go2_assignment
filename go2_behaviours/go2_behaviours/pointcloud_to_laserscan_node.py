@@ -25,6 +25,7 @@ class PointCloudToLaserScanNode(Node):
         )
         self.range_min = float(self.declare_parameter('range_min', 0.05).value)
         self.range_max = float(self.declare_parameter('range_max', 30.0).value)
+        self.use_z_filter = bool(self.declare_parameter('use_z_filter', False).value)
         self.z_min = float(self.declare_parameter('z_min', 0.1).value)
         self.z_max = float(self.declare_parameter('z_max', 1.0).value)
         self.output_frame = self.declare_parameter('output_frame', '').value
@@ -69,12 +70,19 @@ class PointCloudToLaserScanNode(Node):
         forward_ok = 0
         angle_ok = 0
         range_ok = 0
+        z_min_seen = None
+        z_max_seen = None
 
         for x, y, z in point_cloud2.read_points(
             msg, field_names=('x', 'y', 'z'), skip_nans=True
         ):
             total += 1
-            if z < self.z_min or z > self.z_max:
+            if z_min_seen is None or z < z_min_seen:
+                z_min_seen = z
+            if z_max_seen is None or z > z_max_seen:
+                z_max_seen = z
+
+            if self.use_z_filter and (z < self.z_min or z > self.z_max):
                 continue
             z_ok += 1
 
@@ -110,7 +118,7 @@ class PointCloudToLaserScanNode(Node):
         scan.ranges = ranges
 
         self.scan_pub.publish(scan)
-        self._last_counts = (total, z_ok, forward_ok, angle_ok, range_ok)
+        self._last_counts = (total, z_ok, forward_ok, angle_ok, range_ok, z_min_seen, z_max_seen)
 
         if self.expected_frame and msg.header.frame_id != self.expected_frame:
             self.get_logger().warn(
@@ -157,9 +165,12 @@ class PointCloudToLaserScanNode(Node):
 
         counts = ''
         if self._last_counts:
-            total, z_ok, forward_ok, angle_ok, range_ok = self._last_counts
-            counts = ' | counts: total=%d z=%d fwd=%d ang=%d rng=%d' % (
-                total, z_ok, forward_ok, angle_ok, range_ok
+            total, z_ok, forward_ok, angle_ok, range_ok, z_min_seen, z_max_seen = self._last_counts
+            z_range = ''
+            if z_min_seen is not None and z_max_seen is not None:
+                z_range = ' zmin=%.2f zmax=%.2f' % (z_min_seen, z_max_seen)
+            counts = ' | counts: total=%d z=%d fwd=%d ang=%d rng=%d%s' % (
+                total, z_ok, forward_ok, angle_ok, range_ok, z_range
             )
         self.get_logger().info('front_scan bins: %s%s' % (', '.join(bins), counts))
 
