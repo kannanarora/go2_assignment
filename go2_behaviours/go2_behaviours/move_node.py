@@ -18,12 +18,14 @@ class MoveNode(Node):
 
         self.speed = 0.3
         self.rate_hz = 10.0
+        self.balance_wait_s = 0.3
 
         self.trigger_pub = self.create_publisher(String, '/trigger_behaviour', 10)
         self.cmd_sub = self.create_subscription(String, '/cmd_vel', self.cmd_vel_callback, 10)
 
         self._active = False
         self._command = (0.0, 0.0, 0.0)
+        self._move_start_time = 0.0
         self._deadline = 0.0
 
         self.timer = self.create_timer(1.0 / max(self.rate_hz, 1.0), self.timer_callback)
@@ -37,18 +39,17 @@ class MoveNode(Node):
             return
 
         now = time.monotonic()
-        if now < self._deadline:
-            vx, vy, vyaw = self._command
-            command = f'move {vx} {vy} {vyaw}'
-            msg = String()
-            msg.data = command
-            self.trigger_pub.publish(msg)
-            self.get_logger().info(f'Sent trigger command: {command}')
+        if now < self._move_start_time:
+            self.publish_trigger_command('balance_stand')
+            self.get_logger().info('Waiting for balance stand before move')
             return
 
-        stop_msg = String()
-        stop_msg.data = 'stop'
-        self.trigger_pub.publish(stop_msg)
+        if now < self._deadline:
+            vx, vy, vyaw = self._command
+            self.publish_trigger_command(f'move {vx} {vy} {vyaw}')
+            return
+
+        self.publish_trigger_command('stop')
         self.get_logger().info('Target distance reached, sent stop.')
         self._active = False
 
@@ -87,19 +88,28 @@ class MoveNode(Node):
             'Unsupported /cmd_vel format: "%s"' % raw
         )
 
+    def publish_trigger_command(self, command: str):
+        msg = String()
+        msg.data = command
+        self.trigger_pub.publish(msg)
+        self.get_logger().info('Sent trigger command: %s' % command)
+
     def start_movement(self, vx: float, vy: float, vyaw: float, distance: float):
         if distance <= 0:
             self.get_logger().warn('Distance must be positive: %s' % distance)
             return
 
+        now = time.monotonic()
         duration = distance / max(abs(self.speed), 0.001)
         self._command = (vx, vy, vyaw)
-        self._deadline = time.monotonic() + duration
+        self._move_start_time = now + self.balance_wait_s
+        self._deadline = self._move_start_time + duration
         self._active = True
         self.get_logger().info(
-            'Starting movement vx=%s vy=%s vyaw=%s for %.2f m (%.2f s)'
-            % (vx, vy, vyaw, distance, duration)
+            'Starting movement vx=%s vy=%s vyaw=%s for %.2f m (%.2f s) after %.2f s balance prep'
+            % (vx, vy, vyaw, distance, duration, self.balance_wait_s)
         )
+        self.publish_trigger_command('balance_stand')
 
     def get_move_vector(self, direction: str):
         direction = direction.strip().lower()
