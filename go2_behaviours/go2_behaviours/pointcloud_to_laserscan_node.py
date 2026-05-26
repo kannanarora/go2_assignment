@@ -25,6 +25,8 @@ class PointCloudToLaserScanNode(Node):
         )
         self.range_min = float(self.declare_parameter('range_min', 0.05).value)
         self.range_max = float(self.declare_parameter('range_max', 30.0).value)
+        self.z_min = float(self.declare_parameter('z_min', 0.1).value)
+        self.z_max = float(self.declare_parameter('z_max', 1.0).value)
         self.output_frame = self.declare_parameter('output_frame', '').value
         self.log_every_n = int(self.declare_parameter('log_every_n', 30).value)
         self.log_bin_deg = float(self.declare_parameter('log_bin_deg', 30.0).value)
@@ -58,6 +60,8 @@ class PointCloudToLaserScanNode(Node):
         for x, y, z in point_cloud2.read_points(
             msg, field_names=('x', 'y', 'z'), skip_nans=True
         ):
+            if z < self.z_min or z > self.z_max:
+                continue
             angle = math.atan2(y, x)
             if angle < angle_min or angle > angle_max:
                 continue
