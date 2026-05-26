@@ -6,10 +6,6 @@ Simplest possible test:
   2. Sends 'walk' to start moving forward
   3. Watches range_obstacle from /sportmodestate
   4. Sends 'stop' the moment any obstacle is within 0.5 m
-
-Run with:
-  ros2 run go2_behaviours sport_client_wrapper_node   # terminal 1
-  ros2 run go2_behaviours wall_stop_test_node          # terminal 2
 """
 
 import rclpy
@@ -36,13 +32,22 @@ class WallStopTestNode(Node):
         # Wait 2 s then start walking (gives the wrapper time to come up)
         self._start_timer = self.create_timer(2.0, self._start_walking)
 
+        # Repeatedly publishes 'walk' at 10 Hz to keep the robot moving since the firmware stops the robot if it doesn't receive continuous commands
+        self._walk_timer = self.create_timer(0.1, self._keep_walking)
+        self._walking = False  # only start sending after the 2 s delay
+
         self.get_logger().info(f'WallStopTestNode ready — will stop at {STOP_DISTANCE} m')
 
     def _start_walking(self):
-        """Send walk command once, then cancel this timer."""
+        """Enable the walk loop after the initial 2 s delay."""
         self.get_logger().info('Starting walk...')
-        self.cmd_pub.publish(String(data='walk'))
+        self._walking = True
         self._start_timer.cancel()  # run once only
+
+    def _keep_walking(self):
+        """Publish 'walk' at 10 Hz to keep the robot moving until stopped."""
+        if self._walking and not self.stopped:
+            self.cmd_pub.publish(String(data='walk'))
 
     def _on_sportmode(self, msg: SportModeState) -> None:
         """Check obstacle distances on every update. Stop if anything is too close."""
