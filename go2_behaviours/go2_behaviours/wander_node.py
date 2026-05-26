@@ -29,8 +29,7 @@ class WanderNode(Node):
         self.turn_speed = 1.0
 
         # commands
-        self.move_commands = ['forward'] # TODO add more
-        self.turn_commands = ['turn_left', 'turn_right']
+        self.move_commands = ['forward', 'turn_left', 'turn_right']
 
         # compact Markov table
         self.transitions = {
@@ -45,7 +44,7 @@ class WanderNode(Node):
         self._deadline = 0.0
 
         # how often to check if we should change action (seconds)
-        tick_s = 5.0
+        tick_s = 3.0
         self.timer = self.create_timer(tick_s, self.timer_callback)
         self.get_logger().info('WanderNode ready. Publishing to %s.' % self.trigger_topic)
 
