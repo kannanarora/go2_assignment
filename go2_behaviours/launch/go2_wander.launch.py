@@ -11,6 +11,12 @@ def generate_launch_description():
         ),
         Node(
             package='go2_behaviours',
+            executable='move_node',
+            name='move_node',
+            output='screen',
+        ),
+        Node(
+            package='go2_behaviours',
             executable='wander_node',
             name='wander_node',
             output='screen',

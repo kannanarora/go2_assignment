@@ -18,19 +18,21 @@ class WanderNode(Node):
 
         self.trigger_topic = '/trigger_behaviour'
         self.command_pub = self.create_publisher(String, self.trigger_topic, 10)
+        self.cmd_vel_topic = '/cmd_vel'
+        self.cmd_vel_pub = self.create_publisher(String, self.cmd_vel_topic, 10)
 
         # core timing params (hardcoded defaults)
         self.sit_wait_s = 3.0
         self.stand_wait_s = 1.0
-        self.action_duration_s = 2.0
-        self.action_pulses = 4 # node will send the chosen move/turn command up to 4 times before stopping.
-        self.action_rate_hz = 0.5 # command is re-sent every 2 seconds.
+        self.max_move_distance = 1.0
+        self.move_speed = 0.3
+        self.turn_speed = 1.0
 
         # commands
-        self.move_commands = ['walk'] # TODO add more
+        self.move_commands = ['forward'] # TODO add more
         self.turn_commands = ['turn_left', 'turn_right']
 
-        # compact Markov table (same structure, easier to read)
+        # compact Markov table
         self.transitions = {
             'sit': [('stand', 0.3), ('move', 0.4), ('sit', 0.3)],
             'stand': [('move', 0.5), ('sit', 0.2), ('stand', 0.3)],
@@ -41,10 +43,6 @@ class WanderNode(Node):
         # state
         self._state = 'sit'
         self._deadline = 0.0
-        self._next_pub = 0.0
-        self._sent = 0
-        self._target = 0
-        self._cmd = ''
 
         tick_s = max(0.05, 1.0 / max(self.action_rate_hz, 1.0))
         self.timer = self.create_timer(tick_s, self.timer_callback)
@@ -53,41 +51,28 @@ class WanderNode(Node):
     def timer_callback(self):
         now = time.monotonic()
 
-        # Active action states that publish repeated commands: 'move' and 'turn'
-        if self._state in ('move', 'turn'):
-            if self._sent >= max(self._target, 1) or now >= self._deadline:
-                self.publish_command('stop')
-                self.get_logger().info('Sent command: stop')
-                self._state = 'stop_wait'
-                self._deadline = now + self.stand_wait_s
-                return
-
-            if now >= self._next_pub:
-                self.publish_command(self._cmd)
-                self.get_logger().info('Sent command: %s' % self._cmd)
-                self._next_pub = now + (1.0 / max(self.action_rate_hz, 1.0))
-                self._sent += 1
-            return
-
         # Wait after stop -> then sit
         if self._state == 'stop_wait':
             if now >= self._deadline:
-                self.publish_command('sit')
-                self.get_logger().info('Sent command: sit')
-                self._state = 'sit'
+                self.publish_command('stand')
+                self.get_logger().info('Sent command after moving: stand')
+                self._state = 'stand'
                 self._deadline = now + self.sit_wait_s
             return
+        
+        # If in sit, always stand up. If in stand, choose next action.
+        if self._state in ('sit'):
+            self.get_logger().info('Rise from sit')
+            self.publish_command('rise_sit')
+            self._state = 'stand'
+            return
 
-        # If in sit or stand, decide next action using Markov transitions
-        if self._state in ('sit', 'stand'):
+        # If in stand, decide next action using Markov transitions
+        if self._state in ('stand'):
             next_state = self.choose_next_state(self._state)
-            
-            if next_state != 'sit':
-                self.get_logger().info('Rise sit')
-                self.publish_command('rise_sit')
 
             if next_state == 'sit':
-                self.get_logger().info('Sitting still')
+                self.get_logger().info('Sent command: sit')
                 self._state = 'sit'
                 self._deadline = now + self.sit_wait_s
                 return
@@ -99,18 +84,18 @@ class WanderNode(Node):
                 self._deadline = now + self.stand_wait_s
                 return
 
-            # move/turn: choose specific command and set up repeated publishes
+            # move/turn: send a single /cmd_vel request and let MoveNode handle distance
             if next_state == 'move':
-                cmd = random.choice(self.move_commands)
+                direction = random.choice(self.move_commands)
+                vel_cmd = self.build_cmd_vel(direction)
             else:
-                cmd = random.choice(self.turn_commands)
+                direction = random.choice(self.turn_commands)
+                vel_cmd = self.build_cmd_vel(direction)
 
-            self._cmd = cmd
-            self._sent = 0
-            self._target = max(self.action_pulses, 1)
-            self._next_pub = now
-            self._deadline = now + self.action_duration_s
-            self._state = next_state
+            self.publish_cmd_vel(vel_cmd)
+            self.get_logger().info('Sent cmd_vel: %s' % vel_cmd)
+            self._state = 'stop_wait'
+            self._deadline = now + self.stand_wait_s
             return
 
     def choose_next_state(self, current: str) -> str:
@@ -128,6 +113,22 @@ class WanderNode(Node):
         msg = String()
         msg.data = command
         self.command_pub.publish(msg)
+
+    def publish_cmd_vel(self, command: str):
+        msg = String()
+        msg.data = command
+        self.cmd_vel_pub.publish(msg)
+
+    def build_cmd_vel(self, direction: str) -> str:
+        if direction == 'forward':
+            return f'move {self.move_speed} 0.0 0.0 {self.max_move_distance}'
+        if direction == 'backward':
+            return f'move {-self.move_speed} 0.0 0.0 {self.max_move_distance}'
+        if direction == 'turn_left':
+            return f'move 0.0 0.0 {self.turn_speed} {self.max_move_distance}'
+        if direction == 'turn_right':
+            return f'move 0.0 0.0 {-self.turn_speed} {self.max_move_distance}'
+        return f'move {self.move_speed} 0.0 0.0 {self.max_move_distance}'
 
 def main(args=None):
     rclpy.init(args=args)
