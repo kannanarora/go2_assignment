@@ -16,31 +16,29 @@ class MoveNode(Node):
     def __init__(self):
         super().__init__('move_node')
 
-        self.direction = self.declare_parameter('direction', 'forward').value
-        self.distance_m = float(self.declare_parameter('distance_m', 1.0).value)
-        self.speed = float(self.declare_parameter('speed', 0.3).value)
-        self.rate_hz = float(self.declare_parameter('rate_hz', 10.0).value)
+        self.speed = 0.3
+        self.rate_hz = 10.0
 
         self.trigger_pub = self.create_publisher(String, '/trigger_behaviour', 10)
+        self.cmd_sub = self.create_subscription(String, '/cmd_vel', self.cmd_vel_callback, 10)
 
-        self.start_time = time.monotonic()
-        self.publish_duration = self.distance_m / max(abs(self.speed), 0.001)
-        self.deadline = self.start_time + self.publish_duration
-        self._done = False
+        self._active = False
+        self._command = (0.0, 0.0, 0.0)
+        self._deadline = 0.0
 
         self.timer = self.create_timer(1.0 / max(self.rate_hz, 1.0), self.timer_callback)
         self.get_logger().info(
-            f'MoveNode ready: direction={self.direction} distance={self.distance_m}m '
-            f'speed={self.speed}m/s rate={self.rate_hz}Hz'
+            f'MoveNode ready: listening on /cmd_vel, publishing to /trigger_behaviour '
+            f'at {self.rate_hz}Hz'
         )
 
     def timer_callback(self):
-        if self._done:
+        if not self._active:
             return
 
         now = time.monotonic()
-        if now < self.deadline and self.distance_m > 0.0:
-            vx, vy, vyaw = self.get_move_vector(self.direction)
+        if now < self._deadline:
+            vx, vy, vyaw = self._command
             command = f'move {vx} {vy} {vyaw}'
             msg = String()
             msg.data = command
@@ -52,7 +50,56 @@ class MoveNode(Node):
         stop_msg.data = 'stop'
         self.trigger_pub.publish(stop_msg)
         self.get_logger().info('Target distance reached, sent stop.')
-        self._done = True
+        self._active = False
+
+    def cmd_vel_callback(self, msg: String):
+        raw = msg.data.strip()
+        parts = raw.split()
+
+        # accept: forward 1.0, backward 1.0, left 1.0, right 1.0, turn_left 1.0, turn_right 1.0
+        # accept: move vx vy vyaw distance
+        if len(parts) == 2:
+            direction = parts[0].lower()
+            try:
+                distance = float(parts[1])
+            except ValueError:
+                self.get_logger().warn('Invalid distance in /cmd_vel: %s' % raw)
+                return
+
+            vx, vy, vyaw = self.get_move_vector(direction)
+            self.start_movement(vx, vy, vyaw, distance)
+            return
+
+        if len(parts) == 5 and parts[0].lower() == 'move':
+            try:
+                vx = float(parts[1])
+                vy = float(parts[2])
+                vyaw = float(parts[3])
+                distance = float(parts[4])
+            except ValueError:
+                self.get_logger().warn('Invalid move params in /cmd_vel: %s' % raw)
+                return
+
+            self.start_movement(vx, vy, vyaw, distance)
+            return
+
+        self.get_logger().warn(
+            'Unsupported /cmd_vel format: "%s"' % raw
+        )
+
+    def start_movement(self, vx: float, vy: float, vyaw: float, distance: float):
+        if distance <= 0:
+            self.get_logger().warn('Distance must be positive: %s' % distance)
+            return
+
+        duration = distance / max(abs(self.speed), 0.001)
+        self._command = (vx, vy, vyaw)
+        self._deadline = time.monotonic() + duration
+        self._active = True
+        self.get_logger().info(
+            'Starting movement vx=%s vy=%s vyaw=%s for %.2f m (%.2f s)'
+            % (vx, vy, vyaw, distance, duration)
+        )
 
     def get_move_vector(self, direction: str):
         direction = direction.strip().lower()
