@@ -83,8 +83,8 @@ class WanderNode(Node):
             next_state = self.choose_next_state(self._state)
             
             if next_state != 'sit':
-                self.get_logger().info('Re-sent sit')
-                self.publish_command('sit')
+                self.get_logger().info('Rise sit')
+                self.publish_command('rise_sit')
 
             if next_state == 'sit':
                 self.get_logger().info('Sitting still')
