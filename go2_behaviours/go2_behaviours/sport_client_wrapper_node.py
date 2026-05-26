@@ -60,9 +60,9 @@ class SportClientWrapperNode(Node):
             'sit': lambda: self.send_request(SPORT_API_ID_SIT),
             'rise_sit': lambda: self.send_request(SPORT_API_ID_RISESIT),
             'hello': lambda: self.send_request(SPORT_API_ID_HELLO),
-            'walk': lambda: self.send_move_request(vx=0.3, vy=0.0, vyaw=0.0),
-            'turn_left': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=0.5),
-            'turn_right': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=-0.5),
+            'walk': lambda: self.send_move_request(vx=0.5, vy=0.0, vyaw=0.0),
+            'turn_left': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=1),
+            'turn_right': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=-1),
             'joystick_on': lambda: self.send_request(
                 SPORT_API_ID_SWITCH_JOYSTICK, {'flag': True}
             ),
@@ -79,8 +79,26 @@ class SportClientWrapperNode(Node):
         Called every time a behaviour command arrives on /trigger_behaviour.
         Translates the string command into a Unitree Request and sends it.
         """
-        command = msg.data.strip().lower()
-        self.get_logger().info(f'Received command: "{command}"')
+        raw_command = msg.data.strip()
+        command = raw_command.lower()
+        self.get_logger().info(f'Received command: "{raw_command}"')
+
+        if command.startswith('move '):
+            parts = raw_command.split()
+            if len(parts) == 4:
+                try:
+                    vx = float(parts[1])
+                    vy = float(parts[2])
+                    vyaw = float(parts[3])
+                    self.send_move_request(vx=vx, vy=vy, vyaw=vyaw)
+                    return
+                except ValueError:
+                    self.get_logger().warn(
+                        'Invalid move parameters: "%s"' % raw_command
+                    )
+                    return
+            self.get_logger().warn('Move command must be: move vx vy vyaw')
+            return
 
         handler = self.command_handlers.get(command)
         if handler is None:
