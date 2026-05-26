@@ -27,6 +27,8 @@ setup(
             'behaviour_executor_node = go2_behaviours.behaviour_executor_node:main',
             'behaviour_planner_node = go2_behaviours.behaviour_planner_node:main',
             'sit_stand_loop_node = go2_behaviours.sit_stand_loop_node:main',
+            'front_depth_node = go2_behaviours.front_depth_node:main',
+            'pointcloud_to_laserscan_node = go2_behaviours.pointcloud_to_laserscan_node:main',
         ],
     },
 )
