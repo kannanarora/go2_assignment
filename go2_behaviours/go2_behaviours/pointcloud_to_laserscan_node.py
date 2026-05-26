@@ -29,9 +29,15 @@ class PointCloudToLaserScanNode(Node):
         self.z_max = float(self.declare_parameter('z_max', 1.0).value)
         self.output_frame = self.declare_parameter('output_frame', '').value
         self.expected_frame = self.declare_parameter('expected_frame', 'base_link').value
+        self.forward_axis = self.declare_parameter('forward_axis', 'x').value
+        self.lateral_axis = self.declare_parameter('lateral_axis', 'y').value
+        self.require_positive_forward = bool(
+            self.declare_parameter('require_positive_forward', True).value
+        )
         self.log_every_n = int(self.declare_parameter('log_every_n', 30).value)
         self.log_bin_deg = float(self.declare_parameter('log_bin_deg', 30.0).value)
         self._scan_count = 0
+        self._last_counts = None
 
         self.scan_pub = self.create_publisher(LaserScan, 'front_scan', 10)
         self.cloud_sub = self.create_subscription(
@@ -58,18 +64,34 @@ class PointCloudToLaserScanNode(Node):
         count = int(math.floor((angle_max - angle_min) / angle_inc)) + 1
         ranges = [math.inf] * count
 
+        total = 0
+        z_ok = 0
+        forward_ok = 0
+        angle_ok = 0
+        range_ok = 0
+
         for x, y, z in point_cloud2.read_points(
             msg, field_names=('x', 'y', 'z'), skip_nans=True
         ):
+            total += 1
             if z < self.z_min or z > self.z_max:
                 continue
-            angle = math.atan2(y, x)
+            z_ok += 1
+
+            forward, lateral = self.select_axes(x, y, z)
+            if self.require_positive_forward and forward <= 0.0:
+                continue
+            forward_ok += 1
+
+            angle = math.atan2(lateral, forward)
             if angle < angle_min or angle > angle_max:
                 continue
+            angle_ok += 1
 
-            dist = math.hypot(x, y)
+            dist = math.hypot(forward, lateral)
             if dist < self.range_min or dist > self.range_max:
                 continue
+            range_ok += 1
 
             index = int((angle - angle_min) / angle_inc)
             if 0 <= index < count and dist < ranges[index]:
@@ -88,6 +110,7 @@ class PointCloudToLaserScanNode(Node):
         scan.ranges = ranges
 
         self.scan_pub.publish(scan)
+        self._last_counts = (total, z_ok, forward_ok, angle_ok, range_ok)
 
         if self.expected_frame and msg.header.frame_id != self.expected_frame:
             self.get_logger().warn(
@@ -98,6 +121,16 @@ class PointCloudToLaserScanNode(Node):
         self._scan_count += 1
         if self._scan_count % max(self.log_every_n, 1) == 0:
             self.log_bins(angle_min, angle_max, angle_inc, ranges)
+
+    def select_axes(self, x: float, y: float, z: float):
+        axes = {
+            'x': x,
+            'y': y,
+            'z': z,
+        }
+        forward = axes.get(self.forward_axis, x)
+        lateral = axes.get(self.lateral_axis, y)
+        return forward, lateral
 
     def log_bins(self, angle_min: float, angle_max: float, angle_inc: float, ranges):
         step = math.radians(max(self.log_bin_deg, 1.0))
@@ -122,7 +155,13 @@ class PointCloudToLaserScanNode(Node):
                 bins.append('%.0f=inf' % math.degrees(angle))
             angle += step
 
-        self.get_logger().info('front_scan bins: %s' % ', '.join(bins))
+        counts = ''
+        if self._last_counts:
+            total, z_ok, forward_ok, angle_ok, range_ok = self._last_counts
+            counts = ' | counts: total=%d z=%d fwd=%d ang=%d rng=%d' % (
+                total, z_ok, forward_ok, angle_ok, range_ok
+            )
+        self.get_logger().info('front_scan bins: %s%s' % (', '.join(bins), counts))
 
 
 def main(args=None):
