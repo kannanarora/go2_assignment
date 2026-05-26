@@ -11,7 +11,6 @@ import time
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-from rclpy.duration import Duration
 
 class WanderNode(Node):
     def __init__(self):
@@ -86,9 +85,6 @@ class WanderNode(Node):
             if next_state != 'sit':
                 self.get_logger().info('Re-sent sit')
                 self.publish_command('sit')
-                self.get_logger().info('Sleeping 2 seconds')
-                duration = Duration(seconds=2.0)
-                self.get_clock().sleep_for(duration) 
 
             if next_state == 'sit':
                 self.get_logger().info('Sitting still')
