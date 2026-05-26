@@ -28,7 +28,7 @@ class WanderNode(Node):
         self.action_rate_hz = 2.0
 
         # commands
-        self.move_commands = ['move_forward', 'move_backward']
+        self.move_commands = ['walk'] # TODO add more
         self.turn_commands = ['turn_left', 'turn_right']
 
         # compact Markov table (same structure, easier to read)
