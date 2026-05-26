@@ -104,6 +104,14 @@ class PointCloudToLaserScanNode(Node):
         angle = angle_min
         bins = []
 
+        zero_index = int(round((0.0 - angle_min) / angle_inc))
+        if 0 <= zero_index < len(ranges):
+            zero_value = ranges[zero_index]
+            if math.isfinite(zero_value):
+                bins.append('0=%.3f' % zero_value)
+            else:
+                bins.append('0=inf')
+
         while angle <= angle_max + 1e-9:
             index = int(round((angle - angle_min) / angle_inc))
             index = max(0, min(index, len(ranges) - 1))
