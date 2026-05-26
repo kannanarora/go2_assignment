@@ -26,6 +26,9 @@ class PointCloudToLaserScanNode(Node):
         self.range_min = float(self.declare_parameter('range_min', 0.05).value)
         self.range_max = float(self.declare_parameter('range_max', 30.0).value)
         self.output_frame = self.declare_parameter('output_frame', '').value
+        self.log_every_n = int(self.declare_parameter('log_every_n', 30).value)
+        self.log_bin_deg = float(self.declare_parameter('log_bin_deg', 30.0).value)
+        self._scan_count = 0
 
         self.scan_pub = self.create_publisher(LaserScan, 'front_scan', 10)
         self.cloud_sub = self.create_subscription(
@@ -80,6 +83,27 @@ class PointCloudToLaserScanNode(Node):
         scan.ranges = ranges
 
         self.scan_pub.publish(scan)
+
+        self._scan_count += 1
+        if self._scan_count % max(self.log_every_n, 1) == 0:
+            self.log_bins(angle_min, angle_max, angle_inc, ranges)
+
+    def log_bins(self, angle_min: float, angle_max: float, angle_inc: float, ranges):
+        step = math.radians(max(self.log_bin_deg, 1.0))
+        angle = angle_min
+        bins = []
+
+        while angle <= angle_max + 1e-9:
+            index = int(round((angle - angle_min) / angle_inc))
+            index = max(0, min(index, len(ranges) - 1))
+            value = ranges[index]
+            if math.isfinite(value):
+                bins.append('%.0f=%.3f' % (math.degrees(angle), value))
+            else:
+                bins.append('%.0f=inf' % math.degrees(angle))
+            angle += step
+
+        self.get_logger().info('front_scan bins: %s' % ', '.join(bins))
 
 
 def main(args=None):
