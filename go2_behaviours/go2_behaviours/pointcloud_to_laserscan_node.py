@@ -16,7 +16,7 @@ class PointCloudToLaserScanNode(Node):
         super().__init__('pointcloud_to_laserscan_node')
 
         self.cloud_topic = self.declare_parameter(
-            'cloud_topic', '/utlidar/cloud_deskewed'
+            'cloud_topic', '/utlidar/cloud_base'
         ).value
         self.angle_min_deg = float(self.declare_parameter('angle_min_deg', -105.0).value)
         self.angle_max_deg = float(self.declare_parameter('angle_max_deg', 105.0).value)
@@ -28,6 +28,7 @@ class PointCloudToLaserScanNode(Node):
         self.z_min = float(self.declare_parameter('z_min', 0.1).value)
         self.z_max = float(self.declare_parameter('z_max', 1.0).value)
         self.output_frame = self.declare_parameter('output_frame', '').value
+        self.expected_frame = self.declare_parameter('expected_frame', 'base_link').value
         self.log_every_n = int(self.declare_parameter('log_every_n', 30).value)
         self.log_bin_deg = float(self.declare_parameter('log_bin_deg', 30.0).value)
         self._scan_count = 0
@@ -87,6 +88,12 @@ class PointCloudToLaserScanNode(Node):
         scan.ranges = ranges
 
         self.scan_pub.publish(scan)
+
+        if self.expected_frame and msg.header.frame_id != self.expected_frame:
+            self.get_logger().warn(
+                'Cloud frame is %s, expected %s. Consider switching cloud_topic.'
+                % (msg.header.frame_id, self.expected_frame)
+            )
 
         self._scan_count += 1
         if self._scan_count % max(self.log_every_n, 1) == 0:
