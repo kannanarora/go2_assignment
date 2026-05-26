@@ -7,8 +7,8 @@ direction is within 0.5 m of an obstacle.
 How it works:
   - SportModeState contains range_obstacle[4]: firmware-computed obstacle
     distances in 4 directions. No LiDAR processing needed.
-  - If min(range_obstacle) < stop_dist → publish /safety_override + send 'stop'
-  - If obstacle clears → clear /safety_override + send 'stand'
+  - If min(range_obstacle) < stop_dist -> publish /safety_override + send 'stop'
+  - If obstacle clears -> clear /safety_override + send 'stand'
 
 Subscriptions:
   /sportmodestate    - velocity + range_obstacle[4] (firmware-computed distances)
@@ -58,7 +58,6 @@ class SafetyMonitorNode(Node):
 
         self.get_logger().info(f'SafetyMonitorNode ready — stop distance: {self.stop_dist} m')
 
-    # ---------- callbacks ----------
 
     def _on_sportmode(self, msg: SportModeState) -> None:
         """
@@ -96,13 +95,12 @@ class SafetyMonitorNode(Node):
         """Stub: person detection via camera (not yet implemented)."""
         pass
 
-    # ---------- helper ----------
 
     def _set_safety(self, active: bool) -> None:
         """
         Switch safety state, signal Tier 2, and command the robot directly.
-          active=True  → 'stop'  (skipped if robot is already stationary)
-          active=False → 'stand' (recover from stop)
+          active=True  -> 'stop'  (skipped if robot is already stationary)
+          active=False -> 'stand' (recover from stop)
         """
         self.safety_active = active
         self.safety_pub.publish(Bool(data=active))
