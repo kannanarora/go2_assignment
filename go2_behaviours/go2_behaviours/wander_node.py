@@ -11,7 +11,7 @@ import time
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-
+from rclpy.duration import Duration
 
 class WanderNode(Node):
     def __init__(self):
@@ -24,8 +24,8 @@ class WanderNode(Node):
         self.sit_wait_s = 3.0
         self.stand_wait_s = 1.0
         self.action_duration_s = 2.0
-        self.action_pulses = 4
-        self.action_rate_hz = 2.0
+        self.action_pulses = 4 # node will send the chosen move/turn command up to 4 times before stopping.
+        self.action_rate_hz = 0.5 # command is re-sent every 2 seconds.
 
         # commands
         self.move_commands = ['walk'] # TODO add more
@@ -82,9 +82,16 @@ class WanderNode(Node):
         # If in sit or stand, decide next action using Markov transitions
         if self._state in ('sit', 'stand'):
             next_state = self.choose_next_state(self._state)
-            if next_state == 'sit':
+            
+            if next_state != 'sit':
+                self.get_logger().info('Re-sent sit')
                 self.publish_command('sit')
-                self.get_logger().info('Sent command: sit')
+                self.get_logger().info('Sleeping 2 seconds')
+                duration = Duration(seconds=2.0)
+                self.get_clock().sleep_for(duration) 
+
+            if next_state == 'sit':
+                self.get_logger().info('Sitting still')
                 self._state = 'sit'
                 self._deadline = now + self.sit_wait_s
                 return
