@@ -27,6 +27,7 @@ class WanderNode(Node):
         self.max_move_distance = 1.0
         self.move_speed = 0.3
         self.turn_speed = 1.0
+        self.action_rate_hz = 1.0
 
         # commands
         self.move_commands = ['forward'] # TODO add more
