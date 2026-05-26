@@ -29,6 +29,7 @@ setup(
             'sit_stand_loop_node = go2_behaviours.sit_stand_loop_node:main',
             'front_depth_node = go2_behaviours.front_depth_node:main',
             'pointcloud_to_laserscan_node = go2_behaviours.pointcloud_to_laserscan_node:main',
+            'front_safety_sit_node = go2_behaviours.front_safety_sit_node:main',
         ],
     },
 )
