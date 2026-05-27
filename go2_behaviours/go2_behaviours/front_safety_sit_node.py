@@ -17,9 +17,9 @@ class FrontSafetySitNode(Node):
             'range_topic', '/utlidar/range_info'
         ).value
         self.trigger_topic = self.declare_parameter('trigger_topic', '/trigger_behaviour').value
-        self.sit_threshold_m = float(self.declare_parameter('sit_threshold_m', 0.15).value)
+        self.sit_threshold_m = float(self.declare_parameter('sit_threshold_m', 1.0).value)
         self.clear_threshold_m = float(
-            self.declare_parameter('clear_threshold_m', 0.20).value
+            self.declare_parameter('clear_threshold_m', 1.0).value
         )
         self.sit_command = self.declare_parameter('sit_command', 'sit').value
         self.stand_command = self.declare_parameter('stand_command', 'rise_sit').value
