@@ -12,12 +12,6 @@ def generate_launch_description():
         ),
         Node(
             package='go2_behaviours',
-            executable='pointcloud_to_laserscan_node',
-            name='pointcloud_to_laserscan_node',
-            output='screen',
-        ),
-        Node(
-            package='go2_behaviours',
             executable='front_safety_sit_node',
             name='front_safety_sit_node',
             output='screen',
