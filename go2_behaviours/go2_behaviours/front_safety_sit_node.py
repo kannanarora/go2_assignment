@@ -2,6 +2,7 @@
 Sits the robot when an obstacle is too close in the front range info.
 """
 
+import math
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -17,12 +18,19 @@ class FrontSafetySitNode(Node):
             'range_topic', '/utlidar/range_info'
         ).value
         self.trigger_topic = self.declare_parameter('trigger_topic', '/trigger_behaviour').value
-        self.sit_threshold_m = float(self.declare_parameter('sit_threshold_m', 1.0).value)
+        self.sit_threshold_m = float(self.declare_parameter('sit_threshold_m', 0.8).value)
         self.clear_threshold_m = float(
-            self.declare_parameter('clear_threshold_m', 1.0).value
+            self.declare_parameter('clear_threshold_m', 0.8).value
         )
         self.sit_command = self.declare_parameter('sit_command', 'sit').value
         self.stand_command = self.declare_parameter('stand_command', 'rise_sit').value
+
+        if self.clear_threshold_m <= self.sit_threshold_m:
+            self.clear_threshold_m = self.sit_threshold_m + 0.1
+            self.get_logger().warn(
+                'clear_threshold_m must be > sit_threshold_m; adjusted to %.2f'
+                % self.clear_threshold_m
+            )
 
         self._is_sitting = False
 
@@ -41,6 +49,9 @@ class FrontSafetySitNode(Node):
 
     def range_callback(self, msg: PointStamped):
         front_range = float(msg.point.x)
+
+        if not math.isfinite(front_range) or front_range <= 0.0:
+            return
 
         if front_range < self.sit_threshold_m and not self._is_sitting:
             self.publish_command(self.sit_command)
