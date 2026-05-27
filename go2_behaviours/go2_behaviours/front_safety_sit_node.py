@@ -7,6 +7,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import PointStamped
+from std_msgs.msg import Float32
 from std_msgs.msg import String
 
 
@@ -16,6 +17,12 @@ class FrontSafetySitNode(Node):
 
         self.range_topic = self.declare_parameter(
             'range_topic', '/utlidar/range_info'
+        ).value
+        self.use_front_depth = bool(
+            self.declare_parameter('use_front_depth', False).value
+        )
+        self.front_depth_topic = self.declare_parameter(
+            'front_depth_topic', 'front_depth'
         ).value
         self.trigger_topic = self.declare_parameter('trigger_topic', '/trigger_behaviour').value
         self.sit_threshold_m = float(self.declare_parameter('sit_threshold_m', 0.8).value)
@@ -35,16 +42,25 @@ class FrontSafetySitNode(Node):
         self._is_sitting = False
 
         self.cmd_pub = self.create_publisher(String, self.trigger_topic, 10)
-        self.range_sub = self.create_subscription(
-            PointStamped,
-            self.range_topic,
-            self.range_callback,
-            qos_profile_sensor_data,
-        )
+        if self.use_front_depth:
+            self.range_sub = self.create_subscription(
+                Float32,
+                self.front_depth_topic,
+                self.depth_callback,
+                10,
+            )
+        else:
+            self.range_sub = self.create_subscription(
+                PointStamped,
+                self.range_topic,
+                self.range_callback,
+                qos_profile_sensor_data,
+            )
 
+        source = self.front_depth_topic if self.use_front_depth else self.range_topic
         self.get_logger().info(
             'FrontSafetySitNode listening on %s (sit<%.2fm, clear>%.2fm).'
-            % (self.range_topic, self.sit_threshold_m, self.clear_threshold_m)
+            % (source, self.sit_threshold_m, self.clear_threshold_m)
         )
 
     def range_callback(self, msg: PointStamped):
@@ -53,6 +69,17 @@ class FrontSafetySitNode(Node):
         if not math.isfinite(front_range) or front_range <= 0.0:
             return
 
+        self.apply_thresholds(front_range)
+
+    def depth_callback(self, msg: Float32):
+        front_range = float(msg.data)
+
+        if not math.isfinite(front_range) or front_range <= 0.0:
+            return
+
+        self.apply_thresholds(front_range)
+
+    def apply_thresholds(self, front_range: float):
         if front_range < self.sit_threshold_m and not self._is_sitting:
             self.publish_command(self.sit_command)
             self._is_sitting = True

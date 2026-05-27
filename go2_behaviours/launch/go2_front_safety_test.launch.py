@@ -15,5 +15,15 @@ def generate_launch_description():
             executable='front_safety_sit_node',
             name='front_safety_sit_node',
             output='screen',
+            parameters=[{
+                'use_front_depth': True,
+                'front_depth_topic': 'front_depth',
+            }],
+        ),
+        Node(
+            package='go2_behaviours',
+            executable='front_depth_node',
+            name='front_depth_node',
+            output='screen',
         ),
     ])
