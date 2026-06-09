@@ -74,7 +74,7 @@ class WanderNode(Node):
             next_state = self.choose_next_state(self._state)
 
             if next_state == 'sit':
-                self.publish_command('stand')
+                self.publish_command('sit')
                 self.get_logger().info('Sent command: sit')
                 self._state = 'sit'
                 self._deadline = now + self.sit_wait_s
