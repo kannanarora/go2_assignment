@@ -5,11 +5,13 @@
   <version>0.0.1</version>
   <description>Go2 robot behaviour nodes for PAR project</description>
   <maintainer email="mattiastofte@gmail.com">Mattias Tofte</maintainer>
+  <maintainer email="s4001021@student.rmit.edu.au">Kannan Arora</maintainer>
   <license>MIT</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>sensor_msgs_py</exec_depend>
   <exec_depend>unitree_go</exec_depend>
   <exec_depend>unitree_api</exec_depend>
   <exec_depend>launch</exec_depend>
