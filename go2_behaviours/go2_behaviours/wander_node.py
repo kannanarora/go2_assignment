@@ -44,12 +44,14 @@ class WanderNode(Node):
         self._deadline = 0.0
 
         # how often to check if we should change action (seconds)
-        tick_s = 3.0
+        tick_s = 10.0
         self.timer = self.create_timer(tick_s, self.timer_callback)
         self.get_logger().info('WanderNode ready. Publishing to %s.' % self.trigger_topic)
 
     def timer_callback(self):
         now = time.monotonic()
+
+        self.get_logger().info('New command incoming')
 
         # Wait after stop -> then sit
         if self._state == 'stop_wait':
@@ -72,7 +74,7 @@ class WanderNode(Node):
             next_state = self.choose_next_state(self._state)
 
             if next_state == 'sit':
-                self.publish_command('sit')
+                self.publish_command('stand')
                 self.get_logger().info('Sent command: sit')
                 self._state = 'sit'
                 self._deadline = now + self.sit_wait_s
