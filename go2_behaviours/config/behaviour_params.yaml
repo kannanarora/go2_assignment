@@ -12,9 +12,17 @@ behaviour_executor_node:
 
 safety_monitor_node:
   ros__parameters:
-    stop_topic: /safety_stop
+    scan_topic: /front_scan
+    safety_override_topic: /safety_override
     trigger_behaviour_topic: /trigger_behaviour
-    safety_command: lie_down
+    trigger_threshold_m: 0.15
+    clear_threshold_m: 0.20
+    safety_command: sit
+    clear_command: rise_sit
+
+pointcloud_to_laserscan_node:
+  ros__parameters:
+    cloud_topic: /utlidar/cloud_deskewed
 
 sit_stand_loop_node:
   ros__parameters:
