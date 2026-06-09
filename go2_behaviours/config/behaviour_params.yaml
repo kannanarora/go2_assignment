@@ -1,9 +1,9 @@
 behaviour_planner_node:
   ros__parameters:
-    planned_behaviour_topic: /planned_behaviour
-    auto_publish: false
-    default_behaviour: stand
-    period_s: 5.0
+    scan_topic: /front_scan
+    greeting_distance: 2.0
+    idle_timeout_s: 10.0
+    tick_rate_s: 3.0
 
 behaviour_executor_node:
   ros__parameters:
