@@ -40,8 +40,8 @@ class MoveNode(Node):
 
         now = time.monotonic()
         if now < self._move_start_time:
-            self.publish_trigger_command('balance_stand')
-            self.get_logger().info('Waiting for BALANCE stand before move')
+            self.publish_trigger_command('free_walk')
+            self.get_logger().info('Waiting for FREEWALK before move')
             return
 
         if now < self._deadline:

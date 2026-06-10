@@ -26,6 +26,7 @@ SPORT_API_ID_RISESIT        = 1010
 SPORT_API_ID_HELLO          = 1016  # wave hello
 SPORT_API_ID_BALANCE_STAND  = 1002
 SPORT_API_ID_SWITCH_JOYSTICK = 1027
+SPORT_API_ID_FREEWALK = 2045
 
 
 class SportClientWrapperNode(Node):
@@ -55,6 +56,7 @@ class SportClientWrapperNode(Node):
         self.command_handlers = {
             'stand': lambda: self.send_request(SPORT_API_ID_STAND_UP),
             'balance_stand': lambda: self.send_request(SPORT_API_ID_BALANCE_STAND),
+            'free_walk': lambda: self.send_request(SPORT_API_ID_FREEWALK),
             'lie_down': lambda: self.send_request(SPORT_API_ID_STAND_DOWN),
             'stop': lambda: self.send_request(SPORT_API_ID_STOP_MOVE),
             'sit': lambda: self.send_request(SPORT_API_ID_SIT),
