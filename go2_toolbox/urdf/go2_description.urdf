@@ -1,6 +1,14 @@
 <?xml version='1.0' encoding='utf-8'?>
 <robot name="go2_description">
-  <link name="base">
+  
+  <!-- Added for ROS navigation/SLAM frame convention: odom -> base_link. -->
+  <link name="base_link" />
+  <joint name="base_link_to_base" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="base" />
+  </joint>
+<link name="base">
     <inertial>
       <origin xyz="0.021112 0 -0.005366" rpy="0 0 0" />
       <mass value="6.921" />
@@ -9,7 +17,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/base.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/base.dae" />
       </geometry>
       <material name="深色橡胶_001-effect"><color rgba="0.6717055 0.6924257 0.7742702 1" /></material><material name="白色logo_001-effect"><color rgba="1 1 1 1" /></material><material name="黑色贴纸_007-effect"><color rgba="0.009018 0.009018 0.009018 1" /></material><material name="黑色金属_007-effect"><color rgba="0.01341 0.01341 0.01341 1" /></material><material name="黑色塑料_003-effect"><color rgba="0.023455 0.023455 0.023455 1" /></material></visual>
     <collision>
@@ -66,7 +74,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/hip.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/hip.dae" />
       </geometry>
       <material name="深色橡胶_001-effect"><color rgba="0.6717055 0.6924257 0.7742702 1" /></material><material name="Material-effect"><color rgba="0.9 0.95 0.95 1" /></material></visual>
     <collision>
@@ -104,7 +112,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/thigh.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/thigh.dae" />
       </geometry>
       <material name="深色橡胶_003-effect"><color rgba="0.6717055 0.6924257 0.7742702 1" /></material><material name="Material_009-effect"><color rgba="0.9 0.95 0.95 1" /></material></visual>
     <collision>
@@ -142,7 +150,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/calf.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/calf.dae" />
       </geometry>
       <material name="黑色足端_005-effect"><color rgba="0 0 0 1" /></material><material name="深色橡胶_005-effect"><color rgba="0.6717055 0.6924257 0.7742702 1" /></material></visual>
     <collision>
@@ -208,7 +216,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/foot.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/foot.dae" />
       </geometry>
       <material name="黑色足端_007-effect"><color rgba="0 0 0 1" /></material></visual>
     <collision>
@@ -233,7 +241,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="3.1415 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/hip.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/hip.dae" />
       </geometry>
       <material name="深色橡胶_001-effect"><color rgba="0.6717055 0.6924257 0.7742702 1" /></material><material name="Material-effect"><color rgba="0.9 0.95 0.95 1" /></material></visual>
     <collision>
@@ -271,7 +279,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/thigh_mirror.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/thigh_mirror.dae" />
       </geometry>
       <material name="深色橡胶_012-effect"><color rgba="0.6717055 0.6924257 0.7742702 1" /></material><material name="Material_011-effect"><color rgba="0.9 0.95 0.95 1" /></material></visual>
     <collision>
@@ -309,7 +317,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/calf_mirror.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/calf_mirror.dae" />
       </geometry>
       <material name="黑色足端_006-effect"><color rgba="0 0 0 1" /></material><material name="深色橡胶_007-effect"><color rgba="0.6717055 0.6924257 0.7742702 1" /></material></visual>
     <collision>
@@ -375,7 +383,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/foot.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/foot.dae" />
       </geometry>
       <material name="黑色足端_007-effect"><color rgba="0 0 0 1" /></material></visual>
     <collision>
@@ -400,7 +408,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 3.1415 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/hip.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/hip.dae" />
       </geometry>
       <material name="深色橡胶_001-effect"><color rgba="0.6717055 0.6924257 0.7742702 1" /></material><material name="Material-effect"><color rgba="0.9 0.95 0.95 1" /></material></visual>
     <collision>
@@ -438,7 +446,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/thigh.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/thigh.dae" />
       </geometry>
       <material name="深色橡胶_003-effect"><color rgba="0.6717055 0.6924257 0.7742702 1" /></material><material name="Material_009-effect"><color rgba="0.9 0.95 0.95 1" /></material></visual>
     <collision>
@@ -476,7 +484,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/calf.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/calf.dae" />
       </geometry>
       <material name="黑色足端_005-effect"><color rgba="0 0 0 1" /></material><material name="深色橡胶_005-effect"><color rgba="0.6717055 0.6924257 0.7742702 1" /></material></visual>
     <collision>
@@ -542,7 +550,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/foot.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/foot.dae" />
       </geometry>
       <material name="黑色足端_007-effect"><color rgba="0 0 0 1" /></material></visual>
     <collision>
@@ -567,7 +575,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="3.1415 3.1415 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/hip.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/hip.dae" />
       </geometry>
       <material name="深色橡胶_001-effect"><color rgba="0.6717055 0.6924257 0.7742702 1" /></material><material name="Material-effect"><color rgba="0.9 0.95 0.95 1" /></material></visual>
     <collision>
@@ -605,7 +613,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/thigh_mirror.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/thigh_mirror.dae" />
       </geometry>
       <material name="深色橡胶_012-effect"><color rgba="0.6717055 0.6924257 0.7742702 1" /></material><material name="Material_011-effect"><color rgba="0.9 0.95 0.95 1" /></material></visual>
     <collision>
@@ -643,7 +651,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/calf_mirror.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/calf_mirror.dae" />
       </geometry>
       <material name="黑色足端_006-effect"><color rgba="0 0 0 1" /></material><material name="深色橡胶_007-effect"><color rgba="0.6717055 0.6924257 0.7742702 1" /></material></visual>
     <collision>
@@ -709,7 +717,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://go2_description/dae/foot.dae" />
+        <mesh filename="package://go2_toolbox/urdf/dae/foot.dae" />
       </geometry>
       <material name="黑色足端_007-effect"><color rgba="0 0 0 1" /></material></visual>
     <collision>
@@ -758,4 +766,12 @@
   </joint>
   <link name="front_camera">
   </link>
+
+  <!-- Added to match /utlidar/cloud header.frame_id. The original model has a fixed sensor link named "radar"; this aliases it to Unitree's live LiDAR frame. -->
+  <link name="utlidar_lidar" />
+  <joint name="radar_to_utlidar_lidar" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="radar" />
+    <child link="utlidar_lidar" />
+  </joint>
 </robot>
