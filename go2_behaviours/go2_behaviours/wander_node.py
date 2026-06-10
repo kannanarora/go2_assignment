@@ -33,10 +33,10 @@ class WanderNode(Node):
 
         # compact Markov table
         self.transitions = {
-            'sit': [('stand', 0.3), ('move', 0.4), ('sit', 0.3)],
-            'stand': [('move', 0.5), ('sit', 0.2), ('stand', 0.3)],
-            'move': [('move', 0.4), ('turn', 0.4), ('sit', 0.2)],
-            'turn': [('move', 0.5), ('sit', 0.2), ('turn', 0.3)],
+            'sit': [('stand', 1.0)],
+            'stand': [('move', 1.0)],
+            # 'move': [('move', 0.4), ('turn', 0.4), ('sit', 0.2)],
+            'move': [('sit', 1.0)],
         }
 
         # state
