@@ -49,8 +49,8 @@ class MoveNode(Node):
             self.publish_trigger_command(f'move {vx} {vy} {vyaw}')
             return
 
-        self.publish_trigger_command('stop')
-        self.get_logger().info('Target distance reached, sent stop.')
+        self.publish_trigger_command('stand')
+        self.get_logger().info('Target distance reached, sent stand.')
         self._active = False
 
     def cmd_vel_callback(self, msg: String):
