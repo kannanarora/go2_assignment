@@ -41,4 +41,13 @@ def generate_launch_description():
 			output='screen',
 			parameters=[params_file],
 		),
+		Node(
+			package='go2_behaviours',
+			executable='audio_player_node',
+			name='audio_player_node',
+			output='screen',
+			parameters=[{
+				'wav_file': LaunchConfiguration('wav_file'),
+			}],
+		),
 	])

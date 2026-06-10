@@ -27,6 +27,7 @@ setup(
             'behaviour_executor_node = go2_behaviours.behaviour_executor_node:main',
             'behaviour_planner_node = go2_behaviours.behaviour_planner_node:main',
             'sit_stand_loop_node = go2_behaviours.sit_stand_loop_node:main',
+            'audio_player_node = go2_behaviours.audio_player_node:main',
         ],
     },
 )
