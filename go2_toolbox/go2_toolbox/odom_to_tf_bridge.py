@@ -16,15 +16,21 @@ class OdomToTFBridge(Node):
         self.logged = False
 
     def cb(self, msg):
+        now = self.get_clock().now().to_msg()
+
         if not msg.header.frame_id:
             msg.header.frame_id = "odom"
         if not msg.child_frame_id:
             msg.child_frame_id = "base_link"
 
+        # Important: Unitree odom timestamps can be offset from ROS time.
+        # Restamp so odom TF matches joint_state_publisher / robot_state_publisher.
+        msg.header.stamp = now
+
         self.odom_pub.publish(msg)
 
         t = TransformStamped()
-        t.header.stamp = msg.header.stamp
+        t.header.stamp = now
         t.header.frame_id = msg.header.frame_id
         t.child_frame_id = msg.child_frame_id
         t.transform.translation.x = msg.pose.pose.position.x
@@ -35,7 +41,9 @@ class OdomToTFBridge(Node):
         self.br.sendTransform(t)
 
         if not self.logged:
-            self.get_logger().info(f"Publishing TF {t.header.frame_id} -> {t.child_frame_id} from /utlidar/robot_odom and republishing /odom")
+            self.get_logger().info(
+                f"Publishing TF {t.header.frame_id} -> {t.child_frame_id} from /utlidar/robot_odom and republishing /odom with current ROS time"
+            )
             self.logged = True
 
 
