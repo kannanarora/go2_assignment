@@ -41,16 +41,15 @@ class MoveNode(Node):
         now = time.monotonic()
         if now < self._move_start_time:
             self.publish_trigger_command('balance_stand')
-            self.get_logger().info('Waiting for balance stand before move')
+            self.get_logger().info('Waiting for BALANCE stand before move')
             return
 
         if now < self._deadline:
             vx, vy, vyaw = self._command
             self.publish_trigger_command(f'move {vx} {vy} {vyaw}')
             return
-
-        self.publish_trigger_command('stand')
-        self.get_logger().info('Target distance reached, sent stand.')
+        
+        self.get_logger().info('Target distance reached!')
         self._active = False
 
     def cmd_vel_callback(self, msg: String):
@@ -109,7 +108,6 @@ class MoveNode(Node):
             'Starting movement vx=%s vy=%s vyaw=%s for %.2f m (%.2f s) after %.2f s balance prep'
             % (vx, vy, vyaw, distance, duration, self.balance_wait_s)
         )
-        self.publish_trigger_command('balance_stand')
 
     def get_move_vector(self, direction: str):
         direction = direction.strip().lower()

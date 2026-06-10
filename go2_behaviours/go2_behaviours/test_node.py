@@ -21,13 +21,12 @@ class TestNode(Node):
         self.cmd_vel_topic = '/cmd_vel'
         self.cmd_vel_pub = self.create_publisher(String, self.cmd_vel_topic, 10)
         self.command_list = [
-            'balance_stand',
             'move 0.5 0.0 0.0 1.0',
             'balance_stand',
             'sit',
             'rise_sit',
-            'balance_stand',
             'move -0.5 0.0 0.0 1.0',
+            'balance_stand',
             'sit',
             'move 0.0 0.0 1.0 1.0',
             'move 0.0 0.0 -1.0 1.0',
