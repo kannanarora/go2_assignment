@@ -42,7 +42,10 @@ class TestNode(Node):
         self.get_logger().info('New command incoming')
         command = self.command_list[self.command_index]
         self.command_index = (self.command_index + 1) % len(self.command_list)
-        self.publish_command(command)
+        if command.startswith('turn'):
+            self.publish_cmd_vel(command)
+        else:
+            self.publish_command(command)
 
     def publish_command(self, command: str):
         msg = String()
