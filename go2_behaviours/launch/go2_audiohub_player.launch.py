@@ -16,7 +16,7 @@ def generate_launch_description():
 
     file_name_arg = DeclareLaunchArgument(
         'file_name',
-        default_value='bark',
+        default_value='go2_bark',
         description='Name to register the file under in AudioHub',
     )
 
