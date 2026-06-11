@@ -91,6 +91,7 @@ class Go2AudioDumpNode(Node):
             out = self.denoiser.process(mono_np).tobytes()
             if self.denoiser.learning:
                 self.get_logger().info("Learning noise profile...", throttle_duration_sec=1.0)
+                return  # don't write until noise profile is ready
 
         self.wav.writeframes(out)
         self.frames_written += frames

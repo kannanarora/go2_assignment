@@ -13,7 +13,7 @@ SAMPLE_RATE = 48000
 FRAME_SIZE = 960
 NOISE_LEARN_SECONDS = 3.0
 NOISE_LEARN_FRAMES = int(NOISE_LEARN_SECONDS * SAMPLE_RATE / FRAME_SIZE)
-HIGHPASS_CUTOFF_HZ = 300  # lidar motor noise sits below this
+HIGHPASS_CUTOFF_HZ = 150  # lidar motor noise sits below this
 
 
 class NoiseReducer:
@@ -56,7 +56,7 @@ class NoiseReducer:
             sr=SAMPLE_RATE,
             y_noise=self._noise_clip,
             stationary=True,
-            prop_decrease=0.9,
+            prop_decrease=0.75,
             n_fft=min(len(mono), 1024),
         )
         return np.clip(reduced, -32768, 32767).astype(np.int16)
