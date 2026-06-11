@@ -47,7 +47,7 @@ class NoiseReducer:
             sr=SAMPLE_RATE,
             y_noise=self._noise_clip,
             stationary=True,
-            prop_decrease=0.6,
+            prop_decrease=0.4,
             n_fft=2048,
             freq_mask_smooth_hz=500,
         )
