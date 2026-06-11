@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import audioop
 import wave
 
 import numpy as np
@@ -10,6 +9,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from unitree_go.msg import AudioData
 
+from go2_behaviours.audio_utils import rms_level, stereo_to_mono
 from go2_behaviours.denoise import NoiseReducer
 
 
@@ -23,20 +23,21 @@ class Go2AudioDumpNode(Node):
         self.declare_parameter("channel_mode", "stereo")  # stereo, left, right, mono
         self.declare_parameter("noise_reduce", False)
 
-        self.audio_topic = self.get_parameter("audio_topic").value
-        self.output_path = self.get_parameter("output_path").value
+        self.audio_topic    = self.get_parameter("audio_topic").value
+        self.output_path    = self.get_parameter("output_path").value
         self.record_seconds = float(self.get_parameter("record_seconds").value)
-        self.channel_mode = self.get_parameter("channel_mode").value
-        self.noise_reduce = self.get_parameter("noise_reduce").value
+        self.channel_mode   = self.get_parameter("channel_mode").value
+        self.noise_reduce   = self.get_parameter("noise_reduce").value
 
-        self.opus_rate = 48000
-        self.opus_channels = 2
+        self.opus_rate       = 48000
+        self.opus_channels   = 2
         self.opus_frame_size = 960
 
         self.decoder = opuslib.Decoder(self.opus_rate, self.opus_channels)
 
         self.frames_written = 0
-        self.max_frames = int(self.record_seconds * self.opus_rate)
+        self.max_frames     = int(self.record_seconds * self.opus_rate)
+        self.frame_count    = 0
 
         self.denoiser = NoiseReducer() if self.noise_reduce else None
 
@@ -64,7 +65,7 @@ class Go2AudioDumpNode(Node):
 
     def audio_callback(self, msg):
         try:
-            pcm48_stereo = self.decoder.decode(
+            pcm_bytes = self.decoder.decode(
                 bytes(msg.data),
                 self.opus_frame_size,
                 decode_fec=False,
@@ -73,18 +74,27 @@ class Go2AudioDumpNode(Node):
             self.get_logger().warn("Opus decode failed: %s" % exc)
             return
 
+        self.frame_count += 1
+
+        stereo = np.frombuffer(pcm_bytes, dtype=np.int16)
+
         if self.channel_mode == "stereo":
-            out = pcm48_stereo
-            frames = len(out) // 4
+            out    = pcm_bytes
+            frames = len(stereo) // 2
         elif self.channel_mode == "left":
-            out = audioop.tomono(pcm48_stereo, 2, 1.0, 0.0)
-            frames = len(out) // 2
+            out    = stereo[0::2].tobytes()
+            frames = len(stereo) // 2
         elif self.channel_mode == "right":
-            out = audioop.tomono(pcm48_stereo, 2, 0.0, 1.0)
-            frames = len(out) // 2
+            out    = stereo[1::2].tobytes()
+            frames = len(stereo) // 2
         else:
-            out = audioop.tomono(pcm48_stereo, 2, 0.5, 0.5)
-            frames = len(out) // 2
+            mono   = stereo_to_mono(stereo)
+            out    = mono.tobytes()
+            frames = len(mono)
+
+        if self.frame_count == 1:
+            mono_for_rms = stereo_to_mono(stereo) if self.channel_mode == "stereo" else np.frombuffer(out, dtype=np.int16)
+            self.get_logger().info("First frame RMS: %d" % rms_level(mono_for_rms))
 
         if self.denoiser is not None and self.channel_mode != "stereo":
             mono_np = np.frombuffer(out, dtype=np.int16)
