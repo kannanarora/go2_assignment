@@ -9,7 +9,7 @@ def generate_launch_description():
     wav_file_arg = DeclareLaunchArgument(
         'wav_file',
         default_value=PathJoinSubstitution(
-            [FindPackageShare('go2_behaviours'), 'sounds', 'bark.wav']
+            [FindPackageShare('go2_behaviours'), 'sounds', 'go2_bark.wav']
         ),
         description='Absolute path to the 48 kHz mono WAV file to play',
     )

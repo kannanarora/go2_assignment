@@ -32,7 +32,7 @@ class AudioPlayerNode(Node):
         super().__init__('audio_player_node')
 
         default_wav = os.path.join(
-            get_package_share_directory('go2_behaviours'), 'sounds', 'bark.wav'
+            get_package_share_directory('go2_behaviours'), 'sounds', 'go2_bark.wav'
         )
         self.declare_parameter('wav_file', default_wav)
         self._wav_file = self.get_parameter('wav_file').value
@@ -45,7 +45,7 @@ class AudioPlayerNode(Node):
         self.create_timer(1.0, self._play_once)
         self._played = False
 
-        self.get_logger().info(f'AudioPlayerNode ready — will play: {self._wav_file}')
+        self.get_logger().info(f'AudioPlayerNode ready, will play: {self._wav_file}')
 
     def _send_hub(self, api_id):
         req = Request()
