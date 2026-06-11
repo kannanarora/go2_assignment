@@ -98,7 +98,13 @@ class Go2AudioDumpNode(Node):
 
         if self.denoiser is not None and self.channel_mode != "stereo":
             mono_np = np.frombuffer(out, dtype=np.int16)
-            out = self.denoiser.process(mono_np).tobytes()
+            chunk   = self.denoiser.process_frame(mono_np)
+            if self.denoiser.learning:
+                self.get_logger().info("Learning noise profile...", throttle_duration_sec=1.0)
+            if chunk is None:
+                return
+            out    = chunk.tobytes()
+            frames = len(chunk)
 
         self.wav.writeframes(out)
         self.frames_written += frames

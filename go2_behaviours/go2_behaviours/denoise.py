@@ -1,26 +1,52 @@
 """
 Noise reduction for Go2 audio frames.
 
-Applies a high-pass filter to cut lidar motor noise which sits below 200 Hz.
-Applied immediately to every frame with no learning phase.
+Buffers audio into 2-second chunks then applies stationary spectral noise
+gating via noisereduce. The first chunk is used as the noise profile (keep
+quiet for the first 2 seconds). Subsequent chunks are denoised and flushed.
 """
 
 import numpy as np
-from scipy.signal import butter, sosfilt, sosfilt_zi
 
-SAMPLE_RATE = 48000
-HIGHPASS_CUTOFF_HZ = 200
+SAMPLE_RATE      = 48000
+CHUNK_SAMPLES    = SAMPLE_RATE * 2   # 2 seconds per chunk
+NOISE_CHUNKS     = 1                 # first chunk = noise profile
 
 
 class NoiseReducer:
     def __init__(self):
-        self._sos = butter(6, HIGHPASS_CUTOFF_HZ / (SAMPLE_RATE / 2), btype='high', output='sos')
-        self._zi  = sosfilt_zi(self._sos) * 0.0
+        import noisereduce  # verify installed
+
+        self._buffer      = []
+        self._noise_clip  = None
+        self._chunks_seen = 0
 
     @property
     def learning(self):
-        return False
+        return self._noise_clip is None
 
-    def process(self, mono):
-        filtered, self._zi = sosfilt(self._sos, mono.astype(np.float32), zi=self._zi)
-        return np.clip(filtered, -32768, 32767).astype(np.int16)
+    def process_frame(self, mono):
+        """Buffer one 960-sample frame. Returns denoised chunk when ready, else None."""
+        self._buffer.append(mono.copy())
+
+        total = sum(len(f) for f in self._buffer)
+        if total < CHUNK_SAMPLES:
+            return None
+
+        chunk = np.concatenate(self._buffer).astype(np.float32)
+        self._buffer = []
+        self._chunks_seen += 1
+
+        if self._chunks_seen <= NOISE_CHUNKS:
+            self._noise_clip = chunk
+            return None  # discard first chunk — it's the noise profile
+
+        import noisereduce as nr
+        reduced = nr.reduce_noise(
+            y=chunk,
+            sr=SAMPLE_RATE,
+            y_noise=self._noise_clip,
+            stationary=True,
+            prop_decrease=0.85,
+        )
+        return np.clip(reduced, -32768, 32767).astype(np.int16)
