@@ -11,7 +11,7 @@ import time
 class SitStandLoopNode(Node):
     def __init__(self):
         super().__init__('sit_stand_loop_node')
-
+    
         self.trigger_topic = '/trigger_behaviour'
         self.command_pub = self.create_publisher(String, self.trigger_topic, 10)
 
