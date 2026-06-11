@@ -2,7 +2,10 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
@@ -12,7 +15,16 @@ def generate_launch_description():
 		'behaviour_params.yaml'
 	)
 
+	wav_file_arg = DeclareLaunchArgument(
+		'wav_file',
+		default_value=PathJoinSubstitution(
+			[FindPackageShare('go2_behaviours'), 'sounds', 'bark.wav']
+		),
+		description='Absolute path to the 48 kHz mono WAV file to play',
+	)
+
 	return LaunchDescription([
+		wav_file_arg,
 		Node(
 			package='go2_behaviours',
 			executable='sport_client_wrapper_node',

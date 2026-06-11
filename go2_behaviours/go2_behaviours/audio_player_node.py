@@ -4,15 +4,15 @@ publishes a WAV file as Opus-encoded frames to /audioreceiver
 An experimental approach that was confirmed to play audio through
 the Go2 speaker on the first attempt. The node reads a 48 kHz mono WAV file,
 encodes each 20 ms frame with Opus, and publishes to /audioreceiver.
-
-makesure you have /home/unitree/bark.wav
 """
 
+import os
 import wave
 import time
 
 import opuslib
 import rclpy
+from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
 from unitree_go.msg import AudioData
 
@@ -26,7 +26,10 @@ class AudioPlayerNode(Node):
     def __init__(self):
         super().__init__('audio_player_node')
 
-        self.declare_parameter('wav_file', '/home/unitree/bark.wav')
+        default_wav = os.path.join(
+            get_package_share_directory('go2_behaviours'), 'sounds', 'bark.wav'
+        )
+        self.declare_parameter('wav_file', default_wav)
         self._wav_file = self.get_parameter('wav_file').value
 
         self._pub     = self.create_publisher(AudioData, TOPIC, 10)

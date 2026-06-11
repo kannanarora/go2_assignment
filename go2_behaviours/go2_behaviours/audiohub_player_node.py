@@ -13,11 +13,13 @@ AudioHub storage, retrieves its UUID, and triggers playback via the API.
 import base64
 import hashlib
 import json
+import os
 import threading
 import time
 from typing import Optional
 
 import rclpy
+from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
 from unitree_api.msg import Request, Response
 
@@ -33,7 +35,10 @@ class AudioHubPlayerNode(Node):
     def __init__(self):
         super().__init__('audiohub_player_node')
 
-        self.declare_parameter('wav_file',  '/home/unitree/bark.wav')
+        default_wav = os.path.join(
+            get_package_share_directory('go2_behaviours'), 'sounds', 'bark.wav'
+        )
+        self.declare_parameter('wav_file',  default_wav)
         self.declare_parameter('file_name', 'bark')
 
         self._wav_file  = self.get_parameter('wav_file').value
