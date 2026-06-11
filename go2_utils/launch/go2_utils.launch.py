@@ -6,7 +6,7 @@ from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
 
-    pkg_share = get_package_share_directory("go2_toolbox")
+    pkg_share = get_package_share_directory("go2_utils")
     urdf_path = os.path.join(pkg_share, "urdf", "go2_description.urdf")
 
     with open(urdf_path, "r") as f:
@@ -14,7 +14,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         Node(
-            package="go2_toolbox",
+            package="go2_utils",
             executable="odom_to_tf_bridge",
             name="odom_to_tf_bridge",
             output="screen",
@@ -90,9 +90,9 @@ def generate_launch_description():
             }],
         ),
         # #Node(
-        # #    package="slam_toolbox",
-        # #    executable="async_slam_toolbox_node",
-        # #    name="slam_toolbox",
+        # #    package="slam_utils",
+        # #    executable="async_slam_utils_node",
+        # #    name="slam_utils",
         # #    output="screen",
         # #    parameters=[{
         # #        "use_sim_time": False,
@@ -134,7 +134,7 @@ def generate_launch_description():
             }],
         ),
         Node(
-            package="go2_toolbox",
+            package="go2_utils",
             executable="cloud_throttle",
             name="cloud_throttle",
             output="screen",
@@ -145,7 +145,7 @@ def generate_launch_description():
             }],
         ),
         Node(
-            package="go2_toolbox",
+            package="go2_utils",
             executable="front_scan_logger",
             name="front_scan_logger",
             output="screen",

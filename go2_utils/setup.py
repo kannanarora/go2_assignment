@@ -3,7 +3,7 @@ from glob import glob
 
 from setuptools import setup
 
-package_name = 'go2_toolbox'
+package_name = 'go2_utils'
 
 setup(
     name=package_name,
@@ -21,15 +21,15 @@ setup(
     zip_safe=True,
     maintainer='Mattias Tofte',
     maintainer_email='mattiastofte@gmail.com',
-    description='Go2 robot toolbox for SLAM, odometry, and utility nodes.',
+    description='Go2 robot utils for SLAM, odometry, and utility nodes.',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'odom_to_tf_bridge = go2_toolbox.odom_to_tf_bridge:main',
-            'go2_whisper_node = go2_toolbox.go2_whisper_node:main',
-            'cloud_throttle = go2_toolbox.cloud_throttle:main',
-            'front_scan_logger = go2_toolbox.front_scan_logger:main',
+            'odom_to_tf_bridge = go2_utils.odom_to_tf_bridge:main',
+            'go2_whisper_node = go2_utils.go2_whisper_node:main',
+            'cloud_throttle = go2_utils.cloud_throttle:main',
+            'front_scan_logger = go2_utils.front_scan_logger:main',
         ],
     },
 )

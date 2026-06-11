@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>go2_toolbox</name>
+  <name>go2_utils</name>
   <version>0.0.1</version>
-  <description>Go2 robot toolbox for SLAM, odometry, and utility nodes.</description>
+  <description>Go2 robot utils for SLAM, odometry, and utility nodes.</description>
 
   <maintainer email="mattiastofte@gmail.com">Mattias Tofte</maintainer>
   <maintainer email="s4001021@student.rmit.edu.au">Kannan Arora</maintainer>
@@ -30,7 +30,7 @@
   <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>
   <exec_depend>pointcloud_to_laserscan</exec_depend>
-  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>slam_utils</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>
