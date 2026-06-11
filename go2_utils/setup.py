@@ -30,6 +30,7 @@ setup(
             "cloud_throttle = go2_utils.cloud_throttle:main",
             "front_scan_logger = go2_utils.front_scan_logger:main",
             "go2_whisper_node = go2_utils.go2_whisper_node:main",
+            "audio_dump_node = go2_utils.audio_dump_node:main",
         ],
     },
 )
