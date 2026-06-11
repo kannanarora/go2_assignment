@@ -47,6 +47,8 @@ class NoiseReducer:
             sr=SAMPLE_RATE,
             y_noise=self._noise_clip,
             stationary=True,
-            prop_decrease=0.85,
+            prop_decrease=0.6,
+            n_fft=2048,
+            freq_mask_smooth_hz=500,
         )
         return np.clip(reduced, -32768, 32767).astype(np.int16)
