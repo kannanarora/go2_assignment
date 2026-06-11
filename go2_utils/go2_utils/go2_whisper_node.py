@@ -35,23 +35,65 @@ class Go2WhisperNode(Node):
 
         self.declare_parameter("audio_topic", "/audiosender")
         self.declare_parameter("text_topic", "/go2/whisper/text")
-        self.declare_parameter("model_name", "tiny.en")
+
+        # Try "tiny.en" for fastest, "base.en" for better command recognition.
+        self.declare_parameter("model_name", "base.en")
         self.declare_parameter("language", "en")
-        self.declare_parameter("chunk_seconds", 3.0)
-        self.declare_parameter("overlap_seconds", 0.5)
-        self.declare_parameter("min_rms", 250)
+
+        # Low-latency command settings.
+        self.declare_parameter("chunk_seconds", 1.0)
+        self.declare_parameter("overlap_seconds", 0.15)
+        self.declare_parameter("pending_chunks", 1)
+
+        # Audio gates.
+        self.declare_parameter("min_rms", 500)
         self.declare_parameter("min_text_length", 2)
-        self.declare_parameter("pending_chunks", 2)
+
+        # Jetson CUDA works, but fp16 can produce NaNs on this setup.
+        self.declare_parameter("fp16", False)
+
+        # Simple fan/noise reduction.
+        self.declare_parameter("enable_denoise", True)
+        self.declare_parameter("noise_learn_chunks", 3)
+        self.declare_parameter("noise_reduce_strength", 1.2)
+        self.declare_parameter("noise_floor", 0.08)
+        self.declare_parameter("highpass_hz", 120.0)
+        self.declare_parameter("lowpass_hz", 4200.0)
+
+        # Whisper command bias.
+        self.declare_parameter(
+            "initial_prompt",
+            (
+                "The robot only listens for short English voice commands: "
+                "sit, sit down, stand, stand up, stop, lie down, hello, "
+                "come here, come to me."
+            ),
+        )
 
         self.audio_topic = self.get_parameter("audio_topic").value
         self.text_topic = self.get_parameter("text_topic").value
         self.model_name = self.get_parameter("model_name").value
         self.language = self.get_parameter("language").value
+
         self.chunk_seconds = float(self.get_parameter("chunk_seconds").value)
         self.overlap_seconds = float(self.get_parameter("overlap_seconds").value)
+        self.pending_chunks = int(self.get_parameter("pending_chunks").value)
+
         self.min_rms = int(self.get_parameter("min_rms").value)
         self.min_text_length = int(self.get_parameter("min_text_length").value)
-        self.pending_chunks = int(self.get_parameter("pending_chunks").value)
+
+        self.fp16 = bool(self.get_parameter("fp16").value)
+
+        self.enable_denoise = bool(self.get_parameter("enable_denoise").value)
+        self.noise_learn_chunks = int(self.get_parameter("noise_learn_chunks").value)
+        self.noise_reduce_strength = float(
+            self.get_parameter("noise_reduce_strength").value
+        )
+        self.noise_floor = float(self.get_parameter("noise_floor").value)
+        self.highpass_hz = float(self.get_parameter("highpass_hz").value)
+        self.lowpass_hz = float(self.get_parameter("lowpass_hz").value)
+
+        self.initial_prompt = self.get_parameter("initial_prompt").value
 
         # Verified Go2 stream format.
         self.opus_rate = 48000
@@ -79,6 +121,9 @@ class Go2WhisperNode(Node):
         self.running = True
         self.last_text = ""
 
+        self.noise_mag = None
+        self.noise_chunks_seen = 0
+
         self.chunk_bytes = int(self.chunk_seconds * self.whisper_rate * 2)
         self.overlap_bytes = int(self.overlap_seconds * self.whisper_rate * 2)
 
@@ -89,12 +134,18 @@ class Go2WhisperNode(Node):
             self.overlap_bytes = int(0.25 * self.chunk_bytes)
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        if device == "cpu" and self.fp16:
+            self.get_logger().warn(
+                "fp16=True requested, but device is CPU. Forcing fp16=False."
+            )
+            self.fp16 = False
+
         self.get_logger().info(
             "Loading Whisper model '%s' on %s" % (self.model_name, device)
         )
 
         self.model = whisper.load_model(self.model_name, device=device)
-        self.fp16 = False
 
         self.worker = threading.Thread(target=self.worker_loop, daemon=True)
         self.worker.start()
@@ -102,14 +153,25 @@ class Go2WhisperNode(Node):
         self.get_logger().info("Listening on %s" % self.audio_topic)
         self.get_logger().info("Publishing text on %s" % self.text_topic)
         self.get_logger().info(
-            "chunk_seconds=%.2f overlap_seconds=%.2f min_rms=%d pending_chunks=%d"
+            (
+                "chunk_seconds=%.2f overlap_seconds=%.2f min_rms=%d "
+                "pending_chunks=%d fp16=%s denoise=%s"
+            )
             % (
                 self.chunk_seconds,
                 self.overlap_seconds,
                 self.min_rms,
                 self.pending_chunks,
+                str(self.fp16),
+                str(self.enable_denoise),
             )
         )
+
+        if self.enable_denoise and self.noise_learn_chunks > 0:
+            self.get_logger().info(
+                "Stay quiet for the first %d audio chunks so I can learn fan noise."
+                % self.noise_learn_chunks
+            )
 
     def audio_callback(self, msg: AudioData):
         try:
@@ -130,7 +192,7 @@ class Go2WhisperNode(Node):
             0.5,
         )
 
-        # Mono 48 kHz int16 -> mono 16 kHz int16
+        # Mono 48 kHz int16 -> mono 16 kHz int16.
         # Keep ratecv_state between packets to avoid resampling artifacts.
         pcm16_mono, self.ratecv_state = audioop.ratecv(
             pcm48_mono,
@@ -153,6 +215,64 @@ class Go2WhisperNode(Node):
                 else:
                     self.buffer.clear()
 
+    def bandpass_filter(self, audio_f32):
+        if len(audio_f32) == 0:
+            return audio_f32
+
+        spectrum = np.fft.rfft(audio_f32)
+        freqs = np.fft.rfftfreq(len(audio_f32), d=1.0 / self.whisper_rate)
+
+        mask = (freqs >= self.highpass_hz) & (freqs <= self.lowpass_hz)
+        spectrum *= mask
+
+        filtered = np.fft.irfft(spectrum, n=len(audio_f32)).astype(np.float32)
+        return np.clip(filtered, -1.0, 1.0)
+
+    def spectral_denoise(self, audio_f32):
+        if len(audio_f32) == 0:
+            return audio_f32, False
+
+        spectrum = np.fft.rfft(audio_f32)
+        mag = np.abs(spectrum)
+        phase = np.angle(spectrum)
+
+        # Learn the fan/noise profile from the first few chunks.
+        if self.noise_chunks_seen < self.noise_learn_chunks:
+            if self.noise_mag is None:
+                self.noise_mag = mag.copy()
+            else:
+                self.noise_mag = 0.8 * self.noise_mag + 0.2 * mag
+
+            self.noise_chunks_seen += 1
+            self.get_logger().info(
+                "Learning noise profile chunk %d/%d"
+                % (self.noise_chunks_seen, self.noise_learn_chunks)
+            )
+            return audio_f32, True
+
+        if self.noise_mag is None:
+            return audio_f32, False
+
+        reduced_mag = mag - self.noise_reduce_strength * self.noise_mag
+        reduced_mag = np.maximum(reduced_mag, self.noise_floor * mag)
+
+        cleaned_spectrum = reduced_mag * np.exp(1j * phase)
+        cleaned = np.fft.irfft(cleaned_spectrum, n=len(audio_f32)).astype(np.float32)
+
+        peak = np.max(np.abs(cleaned))
+        if peak > 1.0:
+            cleaned = cleaned / peak
+
+        return np.clip(cleaned, -1.0, 1.0), False
+
+    def preprocess_audio(self, audio_f32):
+        if not self.enable_denoise:
+            return audio_f32, False
+
+        audio_f32 = self.bandpass_filter(audio_f32)
+        audio_f32, learning_noise = self.spectral_denoise(audio_f32)
+        return audio_f32, learning_noise
+
     def worker_loop(self):
         while self.running:
             chunk = None
@@ -165,13 +285,26 @@ class Go2WhisperNode(Node):
                 time.sleep(0.05)
                 continue
 
-            rms = audioop.rms(chunk, 2)
-            if rms < self.min_rms:
-                continue
+            raw_rms = audioop.rms(chunk, 2)
 
             try:
                 audio_i16 = np.frombuffer(chunk, dtype=np.int16)
                 audio_f32 = audio_i16.astype(np.float32) / 32768.0
+
+                audio_f32, learning_noise = self.preprocess_audio(audio_f32)
+
+                # Do not transcribe while learning the fan profile.
+                if learning_noise:
+                    continue
+
+                # Re-check RMS after filtering/denoising.
+                denoised_i16 = np.clip(audio_f32 * 32768.0, -32768, 32767).astype(
+                    np.int16
+                )
+                clean_rms = audioop.rms(denoised_i16.tobytes(), 2)
+
+                if raw_rms < self.min_rms and clean_rms < self.min_rms:
+                    continue
 
                 result = self.model.transcribe(
                     audio_f32,
@@ -179,7 +312,11 @@ class Go2WhisperNode(Node):
                     fp16=self.fp16,
                     verbose=False,
                     condition_on_previous_text=False,
-                    no_speech_threshold=0.6,
+                    temperature=0.0,
+                    no_speech_threshold=0.75,
+                    logprob_threshold=-0.8,
+                    compression_ratio_threshold=2.4,
+                    initial_prompt=self.initial_prompt,
                 )
 
                 text = result.get("text", "").strip()
