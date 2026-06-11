@@ -87,6 +87,43 @@ class AudioHubPlayerNode(Node):
             self.get_logger().error(f'WAV file not found: {self._wav_file}')
             return
 
+        # Check if file already exists in AudioHub
+        file_uuid = self._get_existing_uuid()
+
+        if file_uuid:
+            self.get_logger().info(f'Found existing UUID: {file_uuid}, skipping upload.')
+        else:
+            self.get_logger().info('File not in AudioHub, uploading...')
+            file_uuid = self._upload_and_get_uuid()
+
+        # Play by UUID
+        if file_uuid:
+            self._publish(SELECT_START_PLAY, {'unique_id': file_uuid})
+            self.get_logger().info('Play command sent.')
+        else:
+            self.get_logger().error('Playback aborted, no UUID found.')
+
+    def _get_existing_uuid(self):
+        self.response = None
+        self.last_api = None
+        self._publish(GET_AUDIO_LIST, {})
+
+        if not self._spin_until(GET_AUDIO_LIST, timeout=5.0):
+            self.get_logger().error('No response to GET_AUDIO_LIST, is AudioHub running?')
+            return None
+
+        try:
+            payload    = json.loads(self.response.data) if self.response.data else {}
+            audio_list = payload.get('audio_list', [])
+            match      = next(
+                (a for a in audio_list if a.get('CUSTOM_NAME') == self._file_name), None
+            )
+            return match.get('UNIQUE_ID') if match else None
+        except Exception as e:
+            self.get_logger().error(f'Parse error: {e} | raw: {self.response.data}')
+            return None
+
+    def _upload_and_get_uuid(self):
         with open(self._wav_file, 'rb') as f:
             audio_data = f.read()
 
@@ -97,7 +134,6 @@ class AudioHubPlayerNode(Node):
 
         self.get_logger().info(f'Uploading {len(audio_data)} bytes ({total} chunks)...')
 
-        # Upload chunks
         for i, chunk in enumerate(chunks, 1):
             self.response = None
             self.last_api = None
@@ -122,39 +158,7 @@ class AudioHubPlayerNode(Node):
         self.get_logger().info('Upload complete. Fetching audio list...')
         time.sleep(0.5)
 
-        # Get audio list and find UUID
-        self.response = None
-        self.last_api = None
-        self._publish(GET_AUDIO_LIST, {})
-
-        if not self._spin_until(GET_AUDIO_LIST, timeout=5.0):
-            self.get_logger().error('No response to GET_AUDIO_LIST, is AudioHub running?')
-            return
-
-        file_uuid = None
-        try:
-            payload    = json.loads(self.response.data) if self.response.data else {}
-            audio_list = payload.get('audio_list', [])
-            match      = next(
-                (a for a in audio_list if a.get('CUSTOM_NAME') == self._file_name), None
-            )
-            if match:
-                file_uuid = match.get('UNIQUE_ID')
-                self.get_logger().info(f'Found UUID: {file_uuid}')
-            else:
-                self.get_logger().error(
-                    f'"{self._file_name}" not in audio list. '
-                    f'Available: {[a.get("CUSTOM_NAME") for a in audio_list]}'
-                )
-        except Exception as e:
-            self.get_logger().error(f'Parse error: {e} | raw: {self.response.data}')
-
-        # Play by UUID
-        if file_uuid:
-            self._publish(SELECT_START_PLAY, {'unique_id': file_uuid})
-            self.get_logger().info('Play command sent.')
-        else:
-            self.get_logger().error('Playback aborted — no UUID found.')
+        return self._get_existing_uuid()
 
 
 def main(args=None):
