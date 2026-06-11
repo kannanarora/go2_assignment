@@ -101,7 +101,16 @@ class SafetyMonitorNode(Node):
     def _on_scan(self, scan: LaserScan):
         front_range = self._front_min_range(scan)
         blocked = math.isfinite(front_range) and front_range < self.sit_threshold_m
-        clear = not math.isfinite(front_range) or front_range > self.clear_threshold_m
+        if self._safety_active:
+            clear = (
+                math.isfinite(front_range)
+                and front_range > self.clear_threshold_m
+            )
+        else:
+            clear = (
+                not math.isfinite(front_range)
+                or front_range > self.clear_threshold_m
+            )
 
         if blocked:
             self._blocked_count += 1

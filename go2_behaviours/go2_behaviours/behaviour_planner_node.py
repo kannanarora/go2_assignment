@@ -94,10 +94,11 @@ class BehaviourPlannerNode(Node):
             self._request_behaviour('hello', range_text)
             return
 
-        # idle sit only when nobody is nearby
-        if idle_duration > self.idle_timeout and (
-            not math.isfinite(self.front_range)
-            or self.front_range >= self.greeting_dist
+        # idle sit only with a confirmed clear reading
+        if (
+            idle_duration > self.idle_timeout
+            and math.isfinite(self.front_range)
+            and self.front_range >= self.greeting_dist
         ):
             self._request_behaviour('sit', range_text)
             return
