@@ -94,7 +94,7 @@ class Go2WhisperNode(Node):
         )
 
         self.model = whisper.load_model(self.model_name, device=device)
-        self.fp16 = device == "cuda"
+        self.fp16 = False
 
         self.worker = threading.Thread(target=self.worker_loop, daemon=True)
         self.worker.start()
