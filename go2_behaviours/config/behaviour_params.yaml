@@ -1,13 +1,15 @@
 behaviour_planner_node:
   ros__parameters:
     scan_topic: /front_scan
-    greeting_distance: 2.0
+    greeting_min_distance: 1.2
+    greeting_distance: 2.5
+    front_half_angle_deg: 15.0
     idle_timeout_s: 10.0
     tick_rate_s: 3.0
 
 behaviour_executor_node:
   ros__parameters:
-    planned_behaviour_topic: /planned_behaviour
+    requested_behaviour_topic: /requested_behaviour
     trigger_behaviour_topic: /trigger_behaviour
 
 safety_monitor_node:
@@ -15,18 +17,12 @@ safety_monitor_node:
     scan_topic: /front_scan
     safety_override_topic: /safety_override
     trigger_behaviour_topic: /trigger_behaviour
-    trigger_threshold_m: 0.15
-    clear_threshold_m: 0.20
+    sit_threshold_m: 0.8
+    clear_threshold_m: 1.2
+    front_half_angle_deg: 15.0
+    required_blocked_frames: 2
+    required_clear_frames: 4
     safety_command: sit
     clear_command: rise_sit
-
-pointcloud_to_laserscan_node:
-  ros__parameters:
-    cloud_topic: /utlidar/cloud_deskewed
-
-sit_stand_loop_node:
-  ros__parameters:
-    stand_api_id: 1004
-    sit_api_id: 1009
-    period_s: 4.0
-    start_with_stand: true
+    enable_stand_command: true
+    log_rate_hz: 2.0
