@@ -52,7 +52,7 @@ def generate_launch_description():
                 "enable_stand_command": True,
 
                 # Keep this True until you have verified the logs.
-                "dry_run": True,
+                "dry_run": False,
 
                 "log_rate_hz": 2.0,
                 "use_sim_time": False,
