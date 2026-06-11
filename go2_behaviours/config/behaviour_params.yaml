@@ -1,8 +1,9 @@
 behaviour_planner_node:
   ros__parameters:
     scan_topic: /front_scan
-    greeting_min_distance: 1.2
+    greeting_min_distance: 1.5
     greeting_distance: 2.5
+    safety_clear_distance: 1.2
     front_half_angle_deg: 15.0
     idle_timeout_s: 10.0
     tick_rate_s: 3.0

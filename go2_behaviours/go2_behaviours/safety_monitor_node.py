@@ -15,7 +15,8 @@ from rclpy.qos import (
     HistoryPolicy,
     DurabilityPolicy,
 )
-from sensor_msgs.msg import Bool, LaserScan, String
+from sensor_msgs.msg import LaserScan
+from std_msgs.msg import Bool, String
 
 
 class SafetyMonitorNode(Node):

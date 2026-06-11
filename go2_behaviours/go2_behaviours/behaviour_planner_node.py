@@ -23,8 +23,9 @@ class BehaviourPlannerNode(Node):
         super().__init__('behaviour_planner_node')
 
         self.declare_parameter('scan_topic', '/front_scan')
-        self.declare_parameter('greeting_min_distance', 1.2)
+        self.declare_parameter('greeting_min_distance', 1.5)
         self.declare_parameter('greeting_distance', 2.5)
+        self.declare_parameter('safety_clear_distance', 1.2)
         self.declare_parameter('front_half_angle_deg', 15.0)
         self.declare_parameter('idle_timeout_s', 10.0)
         self.declare_parameter('tick_rate_s', 3.0)
@@ -32,6 +33,7 @@ class BehaviourPlannerNode(Node):
         self.scan_topic = self.get_parameter('scan_topic').value
         self.greeting_min = self.get_parameter('greeting_min_distance').value
         self.greeting_dist = self.get_parameter('greeting_distance').value
+        self.safety_clear_dist = self.get_parameter('safety_clear_distance').value
         self.front_half_angle_deg = self.get_parameter('front_half_angle_deg').value
         self.idle_timeout = self.get_parameter('idle_timeout_s').value
         tick_rate = self.get_parameter('tick_rate_s').value
@@ -78,14 +80,25 @@ class BehaviourPlannerNode(Node):
             if math.isfinite(self.front_range) else 'inf'
         )
 
+        # Let Tier 1 safety handle close approach and stand-up.
         if (
             math.isfinite(self.front_range)
-            and self.greeting_min < self.front_range < self.greeting_dist
+            and self.front_range <= self.safety_clear_dist
+        ):
+            return
+
+        if (
+            math.isfinite(self.front_range)
+            and self.greeting_min <= self.front_range < self.greeting_dist
         ):
             self._request_behaviour('hello', range_text)
             return
 
-        if idle_duration > self.idle_timeout:
+        # idle sit only when nobody is nearby
+        if idle_duration > self.idle_timeout and (
+            not math.isfinite(self.front_range)
+            or self.front_range >= self.greeting_dist
+        ):
             self._request_behaviour('sit', range_text)
             return
 
