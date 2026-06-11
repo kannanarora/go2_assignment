@@ -73,18 +73,19 @@ def generate_launch_description():
                 "target_frame": "base_footprint",
                 "transform_tolerance": 0.5,
 
-                # Front 180 degrees only
                 "angle_min": -1.5708,
                 "angle_max": 1.5708,
                 "angle_increment": 0.0174533,
 
-                # Tune these. Wider is safer at first.
-                "min_height": -0.50,
-                "max_height": 1.00,
+                # Ignore floor and very low noise.
+                "min_height": 0.08,
+                "max_height": 1.20,
+
+                # Ignore robot body / legs / near-field junk.
+                "range_min": 0.60,
+                "range_max": 6.0,
 
                 "scan_time": 0.10,
-                "range_min": 0.25,
-                "range_max": 6.0,
                 "use_inf": True,
             }],
         ),

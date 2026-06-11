@@ -65,7 +65,7 @@ class OdomToTFBridge(Node):
         t_flat.transform.translation.y = msg.pose.pose.position.y
 
         # Start with robot base z. If height filtering looks weird, change this to 0.0.
-        t_flat.transform.translation.z = msg.pose.pose.position.z
+        t_flat.transform.translation.z = 0.0
 
         t_flat.transform.rotation.x = 0.0
         t_flat.transform.rotation.y = 0.0
