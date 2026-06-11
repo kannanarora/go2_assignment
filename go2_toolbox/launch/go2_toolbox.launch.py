@@ -95,4 +95,15 @@ def generate_launch_description():
                 "use_sim_time": False,
             }],
         ),
+        Node(
+            package="go2_toolbox",
+            executable="cloud_throttle",
+            name="cloud_throttle",
+            output="screen",
+            parameters=[{
+                "input_topic": "/utlidar/cloud_deskewed",
+                "output_topic": "/utlidar/cloud_deskewed_viz",
+                "publish_rate": 2.0,
+            }],
+        ),
     ])
