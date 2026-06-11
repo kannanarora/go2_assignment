@@ -29,6 +29,7 @@ setup(
             'odom_to_tf_bridge = go2_toolbox.odom_to_tf_bridge:main',
             'go2_whisper_node = go2_toolbox.go2_whisper_node:main',
             'cloud_throttle = go2_toolbox.cloud_throttle:main',
+            'front_scan_logger = go2_toolbox.front_scan_logger:main',
         ],
     },
 )
