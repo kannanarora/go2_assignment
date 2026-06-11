@@ -15,6 +15,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
+        (os.path.join('share', package_name, 'sounds'), glob('sounds/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -27,6 +28,9 @@ setup(
             'behaviour_executor_node = go2_behaviours.behaviour_executor_node:main',
             'behaviour_planner_node = go2_behaviours.behaviour_planner_node:main',
             'sit_stand_loop_node = go2_behaviours.sit_stand_loop_node:main',
+            'audio_player_node = go2_behaviours.audio_player_node:main',
+            'audiohub_player_node = go2_behaviours.audiohub_player_node:main',
+            'audio_dump_node = go2_behaviours.audio_dump_node:main',
         ],
     },
 )
