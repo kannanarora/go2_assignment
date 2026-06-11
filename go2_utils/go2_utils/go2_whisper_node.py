@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
 
+"""
+Decode the Go2 audio stream and transcribe it with Whisper.
+
+Expected input:
+  /audiosender  unitree_go/msg/AudioData
+
+Expected Go2 audio format:
+  Opus, 48 kHz, stereo, 20 ms packets, 960 samples per packet
+
+Output:
+  /go2/whisper/text  std_msgs/msg/String
+"""
+
 import audioop
 import threading
 import time
@@ -11,6 +24,7 @@ import rclpy
 import torch
 import whisper
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import String
 from unitree_go.msg import AudioData
 
@@ -27,6 +41,7 @@ class Go2WhisperNode(Node):
         self.declare_parameter("overlap_seconds", 0.5)
         self.declare_parameter("min_rms", 250)
         self.declare_parameter("min_text_length", 2)
+        self.declare_parameter("pending_chunks", 2)
 
         self.audio_topic = self.get_parameter("audio_topic").value
         self.text_topic = self.get_parameter("text_topic").value
@@ -36,43 +51,65 @@ class Go2WhisperNode(Node):
         self.overlap_seconds = float(self.get_parameter("overlap_seconds").value)
         self.min_rms = int(self.get_parameter("min_rms").value)
         self.min_text_length = int(self.get_parameter("min_text_length").value)
+        self.pending_chunks = int(self.get_parameter("pending_chunks").value)
 
-        # Verified from your Go2 stream:
-        # Opus, 48 kHz, stereo, 20 ms packets, 960 samples per packet.
+        # Verified Go2 stream format.
         self.opus_rate = 48000
         self.opus_channels = 2
-        self.opus_frame_size = 960
+        self.opus_frame_size = 960  # 20 ms at 48 kHz
         self.whisper_rate = 16000
 
         self.decoder = opuslib.Decoder(self.opus_rate, self.opus_channels)
 
+        # audioop.ratecv needs this state preserved between packets.
+        self.ratecv_state = None
+
         self.pub = self.create_publisher(String, self.text_topic, 10)
+
         self.sub = self.create_subscription(
             AudioData,
             self.audio_topic,
             self.audio_callback,
-            20,
+            qos_profile_sensor_data,
         )
 
         self.lock = threading.Lock()
         self.buffer = bytearray()
-        self.pending = deque()
+        self.pending = deque(maxlen=max(1, self.pending_chunks))
         self.running = True
         self.last_text = ""
 
         self.chunk_bytes = int(self.chunk_seconds * self.whisper_rate * 2)
         self.overlap_bytes = int(self.overlap_seconds * self.whisper_rate * 2)
 
+        if self.overlap_bytes >= self.chunk_bytes:
+            self.get_logger().warn(
+                "overlap_seconds must be smaller than chunk_seconds; reducing overlap."
+            )
+            self.overlap_bytes = int(0.25 * self.chunk_bytes)
+
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.get_logger().info(f"Loading Whisper model '{self.model_name}' on {device}")
+        self.get_logger().info(
+            "Loading Whisper model '%s' on %s" % (self.model_name, device)
+        )
+
         self.model = whisper.load_model(self.model_name, device=device)
         self.fp16 = device == "cuda"
 
         self.worker = threading.Thread(target=self.worker_loop, daemon=True)
         self.worker.start()
 
-        self.get_logger().info(f"Listening on {self.audio_topic}")
-        self.get_logger().info(f"Publishing text on {self.text_topic}")
+        self.get_logger().info("Listening on %s" % self.audio_topic)
+        self.get_logger().info("Publishing text on %s" % self.text_topic)
+        self.get_logger().info(
+            "chunk_seconds=%.2f overlap_seconds=%.2f min_rms=%d pending_chunks=%d"
+            % (
+                self.chunk_seconds,
+                self.overlap_seconds,
+                self.min_rms,
+                self.pending_chunks,
+            )
+        )
 
     def audio_callback(self, msg: AudioData):
         try:
@@ -82,23 +119,26 @@ class Go2WhisperNode(Node):
                 decode_fec=False,
             )
         except Exception as exc:
-            self.get_logger().warn(f"Opus decode failed: {exc}")
+            self.get_logger().warn("Opus decode failed: %s" % exc)
             return
 
         # Stereo 48 kHz int16 -> mono 48 kHz int16
-        pcm48_mono = audioop.tomono(pcm48_stereo, 2, 0.5, 0.5)
-
-        # Gentle high-pass-ish cleanup is intentionally omitted here.
-        # Whisper generally does better with clean resampling than heavy filtering.
+        pcm48_mono = audioop.tomono(
+            pcm48_stereo,
+            2,
+            0.5,
+            0.5,
+        )
 
         # Mono 48 kHz int16 -> mono 16 kHz int16
-        pcm16_mono, _ = audioop.ratecv(
+        # Keep ratecv_state between packets to avoid resampling artifacts.
+        pcm16_mono, self.ratecv_state = audioop.ratecv(
             pcm48_mono,
             2,
             1,
             self.opus_rate,
             self.whisper_rate,
-            None,
+            self.ratecv_state,
         )
 
         with self.lock:
@@ -147,6 +187,7 @@ class Go2WhisperNode(Node):
                 if len(text) < self.min_text_length:
                     continue
 
+                # Avoid immediate duplicate chunks caused by overlap.
                 if text == self.last_text:
                     continue
 
@@ -155,15 +196,18 @@ class Go2WhisperNode(Node):
                 msg = String()
                 msg.data = text
                 self.pub.publish(msg)
-                self.get_logger().info(f"Heard: {text}")
+
+                self.get_logger().info("Heard: %s" % text)
 
             except Exception as exc:
-                self.get_logger().error(f"Whisper failed: {exc}")
+                self.get_logger().error("Whisper failed: %s" % exc)
 
     def destroy_node(self):
         self.running = False
+
         if hasattr(self, "worker") and self.worker.is_alive():
             self.worker.join(timeout=1.0)
+
         super().destroy_node()
 
 
