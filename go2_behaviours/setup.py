@@ -30,6 +30,7 @@ setup(
             'sit_stand_loop_node = go2_behaviours.sit_stand_loop_node:main',
             'audio_player_node = go2_behaviours.audio_player_node:main',
             'audiohub_player_node = go2_behaviours.audiohub_player_node:main',
+            'audio_dump_node = go2_behaviours.audio_dump_node:main',
         ],
     },
 )
