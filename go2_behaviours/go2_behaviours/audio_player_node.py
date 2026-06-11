@@ -16,9 +16,9 @@ import rclpy
 from rclpy.node import Node
 from unitree_go.msg import AudioData
 
-TOPIC      = '/audioreceiver'
-RATE       = 48000
-CHANNELS   = 1
+TOPIC = '/audioreceiver'
+RATE = 48000
+CHANNELS = 1
 FRAME_SIZE = 960   # 20 ms at 48 kHz
 
 
