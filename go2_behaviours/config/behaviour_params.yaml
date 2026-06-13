@@ -21,11 +21,11 @@ cmd_vel_bridge_node:
     trigger_topic: /trigger_behaviour
     request_topic: /api/sport/request
     publish_rate_hz: 50.0
-    max_linear_speed_mps: 0.30
-    max_lateral_speed_mps: 0.20
-    max_yaw_speed_radps: 0.55
-    linear_accel_mps2: 0.35
-    yaw_accel_radps2: 0.70
+    max_linear_speed_mps: 0.70
+    max_lateral_speed_mps: 0.35
+    max_yaw_speed_radps: 1.40
+    linear_accel_mps2: 0.90
+    yaw_accel_radps2: 2.00
     cmd_vel_timeout_s: 0.6
     auto_joystick_control: true
 
@@ -47,9 +47,9 @@ wander_node:
     scan_topic: /front_scan
     trigger_topic: /trigger_behaviour
     cmd_vel_topic: /cmd_vel
-    forward_speed_mps: 0.22
-    turn_speed_radps: 0.42
-    avoid_turn_speed_radps: 0.45
+    forward_speed_mps: 0.66
+    turn_speed_radps: 1.26
+    avoid_turn_speed_radps: 1.35
     min_turn_deg: 35.0
     max_turn_deg: 160.0
     min_walk_distance_m: 1.2

@@ -32,19 +32,19 @@ class CmdVelBridgeNode(Node):
             self.declare_parameter("publish_rate_hz", 50.0).value
         )
         self.max_linear_speed_mps = float(
-            self.declare_parameter("max_linear_speed_mps", 0.30).value
+            self.declare_parameter("max_linear_speed_mps", 0.70).value
         )
         self.max_lateral_speed_mps = float(
-            self.declare_parameter("max_lateral_speed_mps", 0.20).value
+            self.declare_parameter("max_lateral_speed_mps", 0.35).value
         )
         self.max_yaw_speed_radps = float(
-            self.declare_parameter("max_yaw_speed_radps", 0.55).value
+            self.declare_parameter("max_yaw_speed_radps", 1.40).value
         )
         self.linear_accel_mps2 = float(
-            self.declare_parameter("linear_accel_mps2", 0.35).value
+            self.declare_parameter("linear_accel_mps2", 0.90).value
         )
         self.yaw_accel_radps2 = float(
-            self.declare_parameter("yaw_accel_radps2", 0.70).value
+            self.declare_parameter("yaw_accel_radps2", 2.00).value
         )
         self.cmd_vel_timeout_s = float(
             self.declare_parameter("cmd_vel_timeout_s", 0.6).value
