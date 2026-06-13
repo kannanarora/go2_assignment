@@ -10,5 +10,4 @@ gstreamer_camera_node:
     height: 720
     publish_raw: true
     publish_compressed: true
-    publish_rate: 15.0
     jpeg_quality: 70

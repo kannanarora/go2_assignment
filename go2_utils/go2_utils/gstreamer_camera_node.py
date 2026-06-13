@@ -27,7 +27,6 @@ class GStreamerCameraNode(Node):
         self.publish_compressed = bool(
             self.declare_parameter("publish_compressed", True).value
         )
-        self.publish_rate = float(self.declare_parameter("publish_rate", 15.0).value)
         self.jpeg_quality = int(self.declare_parameter("jpeg_quality", 70).value)
 
         try:
