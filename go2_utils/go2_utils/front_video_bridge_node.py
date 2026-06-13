@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
+import time
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage, Image
 from unitree_go.msg import Go2FrontVideoData
 
 
@@ -17,8 +19,20 @@ class FrontVideoBridgeNode(Node):
         self.output_topic = self.declare_parameter(
             "output_topic", "/camera/image_raw"
         ).value
+        self.compressed_output_topic = self.declare_parameter(
+            "compressed_output_topic", "/camera/image_raw/compressed"
+        ).value
         self.frame_id = self.declare_parameter("frame_id", "front_camera").value
         self.stream = self.declare_parameter("stream", "video720p").value
+        self.publish_raw = bool(self.declare_parameter("publish_raw", True).value)
+        self.publish_compressed = bool(
+            self.declare_parameter("publish_compressed", True).value
+        )
+        self.raw_max_fps = float(self.declare_parameter("raw_max_fps", 10.0).value)
+        self.compressed_max_fps = float(
+            self.declare_parameter("compressed_max_fps", 5.0).value
+        )
+        self.jpeg_quality = int(self.declare_parameter("jpeg_quality", 70).value)
         self.log_decode_errors = bool(
             self.declare_parameter("log_decode_errors", False).value
         )
@@ -33,8 +47,28 @@ class FrontVideoBridgeNode(Node):
 
         self._av = av
         self.decoder = av.CodecContext.create("h264", "r")
+        self._last_raw_publish_time = 0.0
+        self._last_compressed_publish_time = 0.0
+        self._warned_no_cv2 = False
+
+        self._cv2 = None
+        if self.publish_compressed:
+            try:
+                import cv2
+
+                self._cv2 = cv2
+            except ImportError:
+                self.get_logger().warn(
+                    "Compressed image output requires python3-opencv. "
+                    "Raw image output will still be published."
+                )
 
         self.image_pub = self.create_publisher(Image, self.output_topic, 10)
+        self.compressed_pub = self.create_publisher(
+            CompressedImage,
+            self.compressed_output_topic,
+            10,
+        )
         self.video_sub = self.create_subscription(
             Go2FrontVideoData,
             self.input_topic,
@@ -44,8 +78,13 @@ class FrontVideoBridgeNode(Node):
         )
 
         self.get_logger().info(
-            "FrontVideoBridgeNode decoding %s.%s -> %s"
-            % (self.input_topic, self.stream, self.output_topic)
+            "FrontVideoBridgeNode decoding %s.%s -> raw:%s compressed:%s"
+            % (
+                self.input_topic,
+                self.stream,
+                self.output_topic if self.publish_raw else "disabled",
+                self.compressed_output_topic if self.publish_compressed else "disabled",
+            )
         )
 
     def video_callback(self, serialized_msg: bytes):
@@ -64,8 +103,36 @@ class FrontVideoBridgeNode(Node):
             return
 
         for frame in frames:
-            image_msg = self.frame_to_image_msg(frame)
+            self.publish_frame(frame)
+
+    def publish_frame(self, frame):
+        bgr = frame.to_ndarray(format="bgr24")
+        now = time.monotonic()
+        stamp = self.get_clock().now().to_msg()
+
+        if self.publish_raw and self.should_publish(now, self._last_raw_publish_time, self.raw_max_fps):
+            image_msg = self.bgr_to_image_msg(bgr, stamp)
             self.image_pub.publish(image_msg)
+            self._last_raw_publish_time = now
+
+        if (
+            self.publish_compressed
+            and self.should_publish(
+                now,
+                self._last_compressed_publish_time,
+                self.compressed_max_fps,
+            )
+        ):
+            compressed_msg = self.bgr_to_compressed_msg(bgr, stamp)
+            if compressed_msg is not None:
+                self.compressed_pub.publish(compressed_msg)
+                self._last_compressed_publish_time = now
+
+    def should_publish(self, now: float, last_publish_time: float, max_fps: float) -> bool:
+        if max_fps <= 0.0:
+            return True
+
+        return now - last_publish_time >= 1.0 / max_fps
 
     def extract_stream_bytes(self, serialized_msg: bytes) -> bytes:
         streams = self.parse_front_video_cdr(serialized_msg)
@@ -143,11 +210,9 @@ class FrontVideoBridgeNode(Node):
 
         return data[start:]
 
-    def frame_to_image_msg(self, frame) -> Image:
-        bgr = frame.to_ndarray(format="bgr24")
-
+    def bgr_to_image_msg(self, bgr, stamp) -> Image:
         msg = Image()
-        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.stamp = stamp
         msg.header.frame_id = self.frame_id
         msg.height = int(bgr.shape[0])
         msg.width = int(bgr.shape[1])
@@ -155,6 +220,30 @@ class FrontVideoBridgeNode(Node):
         msg.is_bigendian = False
         msg.step = int(msg.width * 3)
         msg.data = bgr.tobytes()
+        return msg
+
+    def bgr_to_compressed_msg(self, bgr, stamp):
+        if self._cv2 is None:
+            if not self._warned_no_cv2:
+                self.get_logger().warn("Skipping compressed output: cv2 is unavailable")
+                self._warned_no_cv2 = True
+            return None
+
+        quality = max(1, min(100, self.jpeg_quality))
+        ok, encoded = self._cv2.imencode(
+            ".jpg",
+            bgr,
+            [int(self._cv2.IMWRITE_JPEG_QUALITY), quality],
+        )
+
+        if not ok:
+            return None
+
+        msg = CompressedImage()
+        msg.header.stamp = stamp
+        msg.header.frame_id = self.frame_id
+        msg.format = "jpeg"
+        msg.data = encoded.tobytes()
         return msg
 
 
