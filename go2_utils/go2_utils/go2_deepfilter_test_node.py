@@ -30,8 +30,9 @@ class Go2DeepFilterTestNode(Node):
         self.declare_parameter("record_seconds", 10.0)
         self.declare_parameter("start_delay", 3.0)
         self.declare_parameter("channel_mode", "mono")  # mono, left, right
-        self.declare_parameter("normalize", False)
-        self.declare_parameter("atten_lim_db", 0.0)  # 0 means no limit
+        self.declare_parameter("normalize", True)
+        self.declare_parameter("output_gain", 1.0)
+        self.declare_parameter("atten_lim_db", 12.0)  # 0 means no limit
 
         self.audio_topic = self.get_parameter("audio_topic").value
         self.output_path = self.get_parameter("output_path").value
@@ -40,6 +41,7 @@ class Go2DeepFilterTestNode(Node):
         self.start_delay = float(self.get_parameter("start_delay").value)
         self.channel_mode = self.get_parameter("channel_mode").value
         self.normalize = bool(self.get_parameter("normalize").value)
+        self.output_gain = float(self.get_parameter("output_gain").value)
         atten = float(self.get_parameter("atten_lim_db").value)
         self.atten_lim_db = atten if atten > 0.0 else None
 
@@ -128,8 +130,8 @@ class Go2DeepFilterTestNode(Node):
 
         self.get_logger().info(
             "Running DeepFilterNet on the whole clip (channel_mode=%s "
-            "normalize=%s atten_lim_db=%s)"
-            % (self.channel_mode, self.normalize, self.atten_lim_db)
+            "normalize=%s output_gain=%.2f atten_lim_db=%s)"
+            % (self.channel_mode, self.normalize, self.output_gain, self.atten_lim_db)
         )
         audio = torch.from_numpy(raw.astype(np.float32) / 32768.0).unsqueeze(0)
         cleaned = self._enhance(
@@ -141,6 +143,8 @@ class Go2DeepFilterTestNode(Node):
             peak = float(np.max(np.abs(cleaned)))
             if peak > 0.0:
                 cleaned = cleaned * (0.95 / peak)
+        elif self.output_gain != 1.0:
+            cleaned = cleaned * self.output_gain
 
         cleaned_i16 = np.clip(cleaned * 32768.0, -32768, 32767).astype(np.int16)
 

@@ -12,6 +12,7 @@ def generate_launch_description():
     start_delay = LaunchConfiguration("start_delay")
     channel_mode = LaunchConfiguration("channel_mode")
     normalize = LaunchConfiguration("normalize")
+    output_gain = LaunchConfiguration("output_gain")
     atten_lim_db = LaunchConfiguration("atten_lim_db")
 
     return LaunchDescription([
@@ -25,8 +26,9 @@ def generate_launch_description():
         DeclareLaunchArgument("record_seconds", default_value="10.0"),
         DeclareLaunchArgument("start_delay", default_value="3.0"),
         DeclareLaunchArgument("channel_mode", default_value="mono"),
-        DeclareLaunchArgument("normalize", default_value="false"),
-        DeclareLaunchArgument("atten_lim_db", default_value="0.0"),
+        DeclareLaunchArgument("normalize", default_value="true"),
+        DeclareLaunchArgument("output_gain", default_value="1.0"),
+        DeclareLaunchArgument("atten_lim_db", default_value="12.0"),
         Node(
             package="go2_utils",
             executable="go2_deepfilter_test_node",
@@ -40,6 +42,7 @@ def generate_launch_description():
                 "start_delay": start_delay,
                 "channel_mode": channel_mode,
                 "normalize": normalize,
+                "output_gain": output_gain,
                 "atten_lim_db": atten_lim_db,
             }],
         ),
