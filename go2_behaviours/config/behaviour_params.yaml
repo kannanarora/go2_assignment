@@ -10,6 +10,19 @@ behaviour_executor_node:
     planned_behaviour_topic: /planned_behaviour
     trigger_behaviour_topic: /trigger_behaviour
 
+sport_client_wrapper_node:
+  ros__parameters:
+    trigger_topic: /trigger_behaviour
+    request_topic: /api/sport/request
+    move_publish_rate_hz: 50.0
+    max_linear_speed_mps: 0.30
+    max_lateral_speed_mps: 0.20
+    max_yaw_speed_radps: 0.55
+    linear_accel_mps2: 0.35
+    yaw_accel_radps2: 0.70
+    move_command_timeout_s: 0.6
+    auto_joystick_control: true
+
 safety_monitor_node:
   ros__parameters:
     stop_topic: /safety_stop
@@ -27,9 +40,9 @@ wander_node:
   ros__parameters:
     scan_topic: /front_scan
     trigger_topic: /trigger_behaviour
-    forward_speed_mps: 0.40
-    turn_speed_radps: 0.80
-    avoid_turn_speed_radps: 0.90
+    forward_speed_mps: 0.22
+    turn_speed_radps: 0.42
+    avoid_turn_speed_radps: 0.45
     min_turn_deg: 35.0
     max_turn_deg: 160.0
     min_walk_distance_m: 1.2

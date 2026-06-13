@@ -26,13 +26,13 @@ class WanderNode(Node):
         ).value
 
         self.forward_speed_mps = float(
-            self.declare_parameter("forward_speed_mps", 0.40).value
+            self.declare_parameter("forward_speed_mps", 0.22).value
         )
         self.turn_speed_radps = float(
-            self.declare_parameter("turn_speed_radps", 0.80).value
+            self.declare_parameter("turn_speed_radps", 0.42).value
         )
         self.avoid_turn_speed_radps = float(
-            self.declare_parameter("avoid_turn_speed_radps", 0.90).value
+            self.declare_parameter("avoid_turn_speed_radps", 0.45).value
         )
 
         self.min_turn_deg = float(self.declare_parameter("min_turn_deg", 35.0).value)
@@ -264,7 +264,7 @@ class WanderNode(Node):
         return max(0, min(idx, len(scan.ranges) - 1))
 
     def publish_move(self, vx: float, vyaw: float):
-        self.publish_command("move %.3f 0.000 %.3f" % (vx, vyaw))
+        self.publish_command("move %.3f 0.000 %.3f" % (vx, vyaw), force=True)
 
     def publish_command(self, command: str, force: bool = False):
         if not force and command == self._last_command:
