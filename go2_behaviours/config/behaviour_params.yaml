@@ -22,3 +22,25 @@ sit_stand_loop_node:
     sit_api_id: 1009
     period_s: 4.0
     start_with_stand: true
+
+wander_node:
+  ros__parameters:
+    scan_topic: /front_scan
+    trigger_topic: /trigger_behaviour
+    forward_speed_mps: 0.30
+    turn_speed_radps: 0.60
+    avoid_turn_speed_radps: 0.75
+    min_turn_deg: 25.0
+    max_turn_deg: 120.0
+    min_walk_distance_m: 0.8
+    max_walk_distance_m: 2.0
+    avoid_threshold_m: 0.95
+    clear_threshold_m: 1.25
+    front_half_angle_deg: 18.0
+    side_sector_min_deg: 25.0
+    side_sector_max_deg: 80.0
+    stop_duration_s: 0.4
+    scan_timeout_s: 1.5
+    command_rate_hz: 10.0
+    log_rate_hz: 1.0
+    startup_command: balance_stand
