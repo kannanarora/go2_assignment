@@ -29,6 +29,11 @@ class BehaviourPlannerNode(Node):
         self.declare_parameter('front_half_angle_deg', 15.0)
         self.declare_parameter('idle_timeout_s', 10.0)
         self.declare_parameter('tick_rate_s', 3.0)
+        self.declare_parameter('voice_topic', '/go2/whisper/text')
+        self.declare_parameter(
+            'voice_greeting_keywords',
+            ['hello', 'hi', 'hey', 'greetings'],
+        )
 
         self.scan_topic = self.get_parameter('scan_topic').value
         self.greeting_min = self.get_parameter('greeting_min_distance').value
@@ -37,6 +42,10 @@ class BehaviourPlannerNode(Node):
         self.front_half_angle_deg = self.get_parameter('front_half_angle_deg').value
         self.idle_timeout = self.get_parameter('idle_timeout_s').value
         tick_rate = self.get_parameter('tick_rate_s').value
+        voice_topic = self.get_parameter('voice_topic').value
+        self.voice_keywords = list(
+            self.get_parameter('voice_greeting_keywords').value
+        )
 
         self.safety_active = False
         self.front_range = float('inf')
@@ -53,6 +62,7 @@ class BehaviourPlannerNode(Node):
         self.create_subscription(Bool, '/safety_override', self._on_safety, 10)
         self.create_subscription(
             LaserScan, self.scan_topic, self._on_scan, scan_qos)
+        self.create_subscription(String, voice_topic, self._on_voice, 10)
 
         self.behaviour_pub = self.create_publisher(String, '/requested_behaviour', 10)
         self.timer = self.create_timer(tick_rate, self._decide)
@@ -68,6 +78,17 @@ class BehaviourPlannerNode(Node):
 
     def _on_scan(self, msg: LaserScan):
         self.front_range = self._front_min_range(msg)
+
+    def _on_voice(self, msg: String):
+        if self.safety_active:
+            return
+
+        text = msg.data.strip().lower()
+        if not text:
+            return
+
+        if any(keyword in text for keyword in self.voice_keywords):
+            self._request_behaviour('hello', f'voice="{text[:40]}"')
 
     def _decide(self):
         if self.safety_active:

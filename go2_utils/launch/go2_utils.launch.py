@@ -144,15 +144,4 @@ def generate_launch_description():
                 "publish_rate": 2.0,
             }],
         ),
-        Node(
-            package="go2_utils",
-            executable="front_scan_logger",
-            name="front_scan_logger",
-            output="screen",
-            parameters=[{
-                "scan_topic": "/front_scan",
-                "log_rate": 2.0,
-                "use_sim_time": False,
-            }],
-        ),
     ])
