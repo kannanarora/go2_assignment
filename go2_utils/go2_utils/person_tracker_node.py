@@ -33,14 +33,23 @@ class PersonTrackerNode(Node):
         self.person_nearby_topic = self.declare_parameter(
             "person_nearby_topic", "/person_nearby"
         ).value
+        self.debug_image_topic = self.declare_parameter(
+            "debug_image_topic", "/person_tracker/debug_image"
+        ).value
 
         self.model_path = self.declare_parameter("model_path", "").value
         self.input_width = int(self.declare_parameter("input_width", 640).value)
         self.input_height = int(self.declare_parameter("input_height", 640).value)
-        self.min_confidence = float(self.declare_parameter("min_confidence", 0.35).value)
+        self.min_confidence = float(self.declare_parameter("min_confidence", 0.20).value)
         self.nms_threshold = float(self.declare_parameter("nms_threshold", 0.45).value)
         self.process_every_n_frames = int(
-            self.declare_parameter("process_every_n_frames", 2).value
+            self.declare_parameter("process_every_n_frames", 1).value
+        )
+        self.publish_debug_image = bool(
+            self.declare_parameter("publish_debug_image", True).value
+        )
+        self.debug_log_interval_s = float(
+            self.declare_parameter("debug_log_interval_s", 2.0).value
         )
 
         self.camera_horizontal_fov_deg = float(
@@ -72,6 +81,10 @@ class PersonTrackerNode(Node):
         self.last_detection_time = 0.0
         self.last_visible = False
         self.frame_count = 0
+        self.last_debug_log_time = 0.0
+        self.last_best_person_score = 0.0
+        self.last_candidate_count = 0
+        self.last_output_shape = None
 
         self.load_model()
 
@@ -96,6 +109,9 @@ class PersonTrackerNode(Node):
         )
         self.track_pub = self.create_publisher(PersonTrack, self.person_track_topic, 10)
         self.nearby_pub = self.create_publisher(Bool, self.person_nearby_topic, 10)
+        self.debug_pub = None
+        if self.publish_debug_image:
+            self.debug_pub = self.create_publisher(Image, self.debug_image_topic, 1)
 
         timer_period = 1.0 / max(self.no_detection_publish_hz, 0.1)
         self.no_detection_timer = self.create_timer(
@@ -142,6 +158,8 @@ class PersonTrackerNode(Node):
 
         detection = self.detect_best_person(image)
         if detection is None:
+            self.maybe_publish_debug_image(image, msg.header, None)
+            self.log_detection_debug(image.shape)
             self.publish_not_visible(msg.header)
             return
 
@@ -170,6 +188,7 @@ class PersonTrackerNode(Node):
 
         self.track_pub.publish(out)
         self.publish_nearby(nearby)
+        self.maybe_publish_debug_image(image, msg.header, detection)
 
         self.last_detection_time = time.monotonic()
         self.last_visible = True
@@ -196,6 +215,7 @@ class PersonTrackerNode(Node):
         blob, scale, pad_x, pad_y = self.make_blob(image)
         self.net.setInput(blob)
         output = self.net.forward()
+        self.last_output_shape = tuple(output.shape)
 
         boxes, scores = self.parse_yolo_output(output, image.shape, scale, pad_x, pad_y)
         if not boxes:
@@ -243,6 +263,8 @@ class PersonTrackerNode(Node):
 
     def parse_yolo_output(self, output, image_shape, scale, pad_x, pad_y):
         output = np.squeeze(output)
+        self.last_best_person_score = 0.0
+        self.last_candidate_count = 0
 
         if output.ndim != 2:
             return [], []
@@ -255,11 +277,16 @@ class PersonTrackerNode(Node):
         image_h, image_w = image_shape[:2]
 
         for row in output:
-            parsed = self.parse_yolo_row(row)
+            parsed = self.parse_yolo_row(row, apply_threshold=False)
             if parsed is None:
                 continue
 
             cx, cy, w, h, score = parsed
+            self.last_best_person_score = max(self.last_best_person_score, score)
+            if score < self.min_confidence:
+                continue
+
+            self.last_candidate_count += 1
             x = (cx - w * 0.5 - pad_x) / scale
             y = (cy - h * 0.5 - pad_y) / scale
             w = w / scale
@@ -275,7 +302,7 @@ class PersonTrackerNode(Node):
 
         return boxes, scores
 
-    def parse_yolo_row(self, row):
+    def parse_yolo_row(self, row, apply_threshold=True):
         if len(row) < 6:
             return None
 
@@ -291,10 +318,74 @@ class PersonTrackerNode(Node):
             person_score = float(row[4])
             score = person_score
 
-        if score < self.min_confidence:
+        if apply_threshold and score < self.min_confidence:
             return None
 
+        if max(abs(float(cx)), abs(float(cy)), abs(float(w)), abs(float(h))) <= 2.0:
+            cx = float(cx) * self.input_width
+            cy = float(cy) * self.input_height
+            w = float(w) * self.input_width
+            h = float(h) * self.input_height
+
         return float(cx), float(cy), float(w), float(h), float(score)
+
+    def log_detection_debug(self, image_shape):
+        now = time.monotonic()
+        if now - self.last_debug_log_time < self.debug_log_interval_s:
+            return
+
+        self.last_debug_log_time = now
+        self.get_logger().info(
+            "No person accepted: best_score=%.3f threshold=%.3f "
+            "candidates=%d output_shape=%s image=%dx%d"
+            % (
+                self.last_best_person_score,
+                self.min_confidence,
+                self.last_candidate_count,
+                self.last_output_shape,
+                image_shape[1],
+                image_shape[0],
+            )
+        )
+
+    def maybe_publish_debug_image(self, image, header, detection):
+        if self.debug_pub is None or self.debug_pub.get_subscription_count() == 0:
+            return
+
+        debug = image.copy()
+        label = "no person %.2f" % self.last_best_person_score
+
+        if detection is not None:
+            x, y, w, h, confidence = detection
+            self.cv2.rectangle(
+                debug,
+                (int(x), int(y)),
+                (int(x + w), int(y + h)),
+                (0, 255, 0),
+                2,
+            )
+            label = "person %.2f" % confidence
+
+        self.cv2.putText(
+            debug,
+            label,
+            (12, 28),
+            self.cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 0),
+            2,
+            self.cv2.LINE_AA,
+        )
+
+        msg = Image()
+        msg.header = header
+        msg.height = int(debug.shape[0])
+        msg.width = int(debug.shape[1])
+        msg.encoding = "bgr8"
+        msg.is_bigendian = False
+        msg.step = int(debug.shape[1] * 3)
+        msg.data = debug.tobytes()
+        self.debug_pub.publish(msg)
 
     def image_x_to_bearing(self, image_x: float, image_width_px: int) -> float:
         half_width = max(image_width_px * 0.5, 1.0)
