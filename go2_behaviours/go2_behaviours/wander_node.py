@@ -45,10 +45,10 @@ class WanderNode(Node):
         )
 
         self.avoid_threshold_m = float(
-            self.declare_parameter("avoid_threshold_m", 0.95).value
+            self.declare_parameter("avoid_threshold_m", 1.45).value
         )
         self.clear_threshold_m = float(
-            self.declare_parameter("clear_threshold_m", 1.25).value
+            self.declare_parameter("clear_threshold_m", 1.75).value
         )
         self.front_half_angle_deg = float(
             self.declare_parameter("front_half_angle_deg", 18.0).value

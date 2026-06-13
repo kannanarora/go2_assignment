@@ -34,8 +34,8 @@ wander_node:
     max_turn_deg: 120.0
     min_walk_distance_m: 0.8
     max_walk_distance_m: 2.0
-    avoid_threshold_m: 0.95
-    clear_threshold_m: 1.25
+    avoid_threshold_m: 1.45
+    clear_threshold_m: 1.75
     front_half_angle_deg: 18.0
     side_sector_min_deg: 25.0
     side_sector_max_deg: 80.0
