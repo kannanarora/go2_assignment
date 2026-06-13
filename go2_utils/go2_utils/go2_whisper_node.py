@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 """
-Decode the Go2 audio stream and transcribe it with Whisper.
+Decode the Go2 audio stream, denoise it with DeepFilterNet, and transcribe
+it with Whisper.
 
 Expected input:
   /audiosender  unitree_go/msg/AudioData
@@ -29,6 +30,23 @@ from std_msgs.msg import String
 from unitree_go.msg import AudioData
 
 
+class DeepFilterDenoiser:
+    """DeepFilterNet wrapper. Cleans mono 48 kHz audio in real time.
+    """
+
+    def __init__(self):
+        from df.enhance import enhance, init_df
+
+        self._enhance = enhance
+        self.model, self.df_state, _ = init_df()
+        self.sample_rate = self.df_state.sr()  # 48000
+
+    def enhance(self, mono_i16):
+        audio = torch.from_numpy(mono_i16.astype(np.float32) / 32768.0).unsqueeze(0)
+        cleaned = self._enhance(self.model, self.df_state, audio)
+        return cleaned.squeeze(0).cpu().numpy()
+
+
 class Go2WhisperNode(Node):
     def __init__(self):
         super().__init__("go2_whisper_node")
@@ -52,13 +70,8 @@ class Go2WhisperNode(Node):
         # Jetson CUDA works, but fp16 can produce NaNs on this setup.
         self.declare_parameter("fp16", False)
 
-        # Simple fan/noise reduction.
+        # DeepFilterNet noise reduction.
         self.declare_parameter("enable_denoise", True)
-        self.declare_parameter("noise_learn_chunks", 3)
-        self.declare_parameter("noise_reduce_strength", 1.2)
-        self.declare_parameter("noise_floor", 0.08)
-        self.declare_parameter("highpass_hz", 120.0)
-        self.declare_parameter("lowpass_hz", 4200.0)
 
         # Whisper command bias.
         self.declare_parameter(
@@ -85,13 +98,6 @@ class Go2WhisperNode(Node):
         self.fp16 = bool(self.get_parameter("fp16").value)
 
         self.enable_denoise = bool(self.get_parameter("enable_denoise").value)
-        self.noise_learn_chunks = int(self.get_parameter("noise_learn_chunks").value)
-        self.noise_reduce_strength = float(
-            self.get_parameter("noise_reduce_strength").value
-        )
-        self.noise_floor = float(self.get_parameter("noise_floor").value)
-        self.highpass_hz = float(self.get_parameter("highpass_hz").value)
-        self.lowpass_hz = float(self.get_parameter("lowpass_hz").value)
 
         self.initial_prompt = self.get_parameter("initial_prompt").value
 
@@ -102,9 +108,6 @@ class Go2WhisperNode(Node):
         self.whisper_rate = 16000
 
         self.decoder = opuslib.Decoder(self.opus_rate, self.opus_channels)
-
-        # audioop.ratecv needs this state preserved between packets.
-        self.ratecv_state = None
 
         self.pub = self.create_publisher(String, self.text_topic, 10)
 
@@ -121,11 +124,10 @@ class Go2WhisperNode(Node):
         self.running = True
         self.last_text = ""
 
-        self.noise_mag = None
-        self.noise_chunks_seen = 0
-
-        self.chunk_bytes = int(self.chunk_seconds * self.whisper_rate * 2)
-        self.overlap_bytes = int(self.overlap_seconds * self.whisper_rate * 2)
+        # Buffer at 48 kHz so DeepFilterNet runs at its native rate, then
+        # downsample to 16 kHz for Whisper after denoising.
+        self.chunk_bytes = int(self.chunk_seconds * self.opus_rate * 2)
+        self.overlap_bytes = int(self.overlap_seconds * self.opus_rate * 2)
 
         if self.overlap_bytes >= self.chunk_bytes:
             self.get_logger().warn(
@@ -140,6 +142,11 @@ class Go2WhisperNode(Node):
                 "fp16=True requested, but device is CPU. Forcing fp16=False."
             )
             self.fp16 = False
+
+        self.denoiser = None
+        if self.enable_denoise:
+            self.get_logger().info("Loading DeepFilterNet")
+            self.denoiser = DeepFilterDenoiser()
 
         self.get_logger().info(
             "Loading Whisper model '%s' on %s" % (self.model_name, device)
@@ -167,12 +174,6 @@ class Go2WhisperNode(Node):
             )
         )
 
-        if self.enable_denoise and self.noise_learn_chunks > 0:
-            self.get_logger().info(
-                "Stay quiet for the first %d audio chunks so I can learn fan noise."
-                % self.noise_learn_chunks
-            )
-
     def audio_callback(self, msg: AudioData):
         try:
             pcm48_stereo = self.decoder.decode(
@@ -184,27 +185,12 @@ class Go2WhisperNode(Node):
             self.get_logger().warn("Opus decode failed: %s" % exc)
             return
 
-        # Stereo 48 kHz int16 -> mono 48 kHz int16
-        pcm48_mono = audioop.tomono(
-            pcm48_stereo,
-            2,
-            0.5,
-            0.5,
-        )
-
-        # Mono 48 kHz int16 -> mono 16 kHz int16.
-        # Keep ratecv_state between packets to avoid resampling artifacts.
-        pcm16_mono, self.ratecv_state = audioop.ratecv(
-            pcm48_mono,
-            2,
-            1,
-            self.opus_rate,
-            self.whisper_rate,
-            self.ratecv_state,
-        )
+        # Stereo 48 kHz int16 -> mono 48 kHz int16. Keep at 48 kHz so the
+        # denoiser sees the full band; downsampling happens after enhancement.
+        pcm48_mono = audioop.tomono(pcm48_stereo, 2, 0.5, 0.5)
 
         with self.lock:
-            self.buffer.extend(pcm16_mono)
+            self.buffer.extend(pcm48_mono)
 
             if len(self.buffer) >= self.chunk_bytes:
                 chunk = bytes(self.buffer[-self.chunk_bytes:])
@@ -215,63 +201,17 @@ class Go2WhisperNode(Node):
                 else:
                     self.buffer.clear()
 
-    def bandpass_filter(self, audio_f32):
-        if len(audio_f32) == 0:
-            return audio_f32
-
-        spectrum = np.fft.rfft(audio_f32)
-        freqs = np.fft.rfftfreq(len(audio_f32), d=1.0 / self.whisper_rate)
-
-        mask = (freqs >= self.highpass_hz) & (freqs <= self.lowpass_hz)
-        spectrum *= mask
-
-        filtered = np.fft.irfft(spectrum, n=len(audio_f32)).astype(np.float32)
-        return np.clip(filtered, -1.0, 1.0)
-
-    def spectral_denoise(self, audio_f32):
-        if len(audio_f32) == 0:
-            return audio_f32, False
-
-        spectrum = np.fft.rfft(audio_f32)
-        mag = np.abs(spectrum)
-        phase = np.angle(spectrum)
-
-        # Learn the fan/noise profile from the first few chunks.
-        if self.noise_chunks_seen < self.noise_learn_chunks:
-            if self.noise_mag is None:
-                self.noise_mag = mag.copy()
-            else:
-                self.noise_mag = 0.8 * self.noise_mag + 0.2 * mag
-
-            self.noise_chunks_seen += 1
-            self.get_logger().info(
-                "Learning noise profile chunk %d/%d"
-                % (self.noise_chunks_seen, self.noise_learn_chunks)
-            )
-            return audio_f32, True
-
-        if self.noise_mag is None:
-            return audio_f32, False
-
-        reduced_mag = mag - self.noise_reduce_strength * self.noise_mag
-        reduced_mag = np.maximum(reduced_mag, self.noise_floor * mag)
-
-        cleaned_spectrum = reduced_mag * np.exp(1j * phase)
-        cleaned = np.fft.irfft(cleaned_spectrum, n=len(audio_f32)).astype(np.float32)
-
-        peak = np.max(np.abs(cleaned))
-        if peak > 1.0:
-            cleaned = cleaned / peak
-
-        return np.clip(cleaned, -1.0, 1.0), False
-
-    def preprocess_audio(self, audio_f32):
-        if not self.enable_denoise:
-            return audio_f32, False
-
-        audio_f32 = self.bandpass_filter(audio_f32)
-        audio_f32, learning_noise = self.spectral_denoise(audio_f32)
-        return audio_f32, learning_noise
+    def resample_to_16k(self, mono_i16):
+        # 48 kHz int16 -> 16 kHz int16. Each chunk is resampled independently.
+        out, _ = audioop.ratecv(
+            mono_i16.tobytes(),
+            2,
+            1,
+            self.opus_rate,
+            self.whisper_rate,
+            None,
+        )
+        return np.frombuffer(out, dtype=np.int16)
 
     def worker_loop(self):
         while self.running:
@@ -288,20 +228,20 @@ class Go2WhisperNode(Node):
             raw_rms = audioop.rms(chunk, 2)
 
             try:
-                audio_i16 = np.frombuffer(chunk, dtype=np.int16)
-                audio_f32 = audio_i16.astype(np.float32) / 32768.0
+                audio48_i16 = np.frombuffer(chunk, dtype=np.int16)
 
-                audio_f32, learning_noise = self.preprocess_audio(audio_f32)
+                if self.denoiser is not None:
+                    cleaned48_f32 = self.denoiser.enhance(audio48_i16)
+                    cleaned48_i16 = np.clip(
+                        cleaned48_f32 * 32768.0, -32768, 32767
+                    ).astype(np.int16)
+                else:
+                    cleaned48_i16 = audio48_i16
 
-                # Do not transcribe while learning the fan profile.
-                if learning_noise:
-                    continue
+                audio16_i16 = self.resample_to_16k(cleaned48_i16)
+                audio_f32 = audio16_i16.astype(np.float32) / 32768.0
 
-                # Re-check RMS after filtering/denoising.
-                denoised_i16 = np.clip(audio_f32 * 32768.0, -32768, 32767).astype(
-                    np.int16
-                )
-                clean_rms = audioop.rms(denoised_i16.tobytes(), 2)
+                clean_rms = audioop.rms(audio16_i16.tobytes(), 2)
 
                 if raw_rms < self.min_rms and clean_rms < self.min_rms:
                     continue
