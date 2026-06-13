@@ -27,18 +27,20 @@ wander_node:
   ros__parameters:
     scan_topic: /front_scan
     trigger_topic: /trigger_behaviour
-    forward_speed_mps: 0.30
-    turn_speed_radps: 0.60
-    avoid_turn_speed_radps: 0.75
-    min_turn_deg: 25.0
-    max_turn_deg: 120.0
-    min_walk_distance_m: 0.8
-    max_walk_distance_m: 2.0
+    forward_speed_mps: 0.40
+    turn_speed_radps: 0.80
+    avoid_turn_speed_radps: 0.90
+    min_turn_deg: 35.0
+    max_turn_deg: 160.0
+    min_walk_distance_m: 1.2
+    max_walk_distance_m: 3.5
     avoid_threshold_m: 1.45
     clear_threshold_m: 1.75
     front_half_angle_deg: 18.0
     side_sector_min_deg: 25.0
     side_sector_max_deg: 80.0
+    avoid_extra_turn_deg: 18.0
+    max_avoid_turn_s: 8.0
     stop_duration_s: 0.4
     scan_timeout_s: 1.5
     command_rate_hz: 10.0

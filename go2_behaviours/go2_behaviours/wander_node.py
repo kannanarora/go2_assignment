@@ -26,22 +26,22 @@ class WanderNode(Node):
         ).value
 
         self.forward_speed_mps = float(
-            self.declare_parameter("forward_speed_mps", 0.30).value
+            self.declare_parameter("forward_speed_mps", 0.40).value
         )
         self.turn_speed_radps = float(
-            self.declare_parameter("turn_speed_radps", 0.60).value
+            self.declare_parameter("turn_speed_radps", 0.80).value
         )
         self.avoid_turn_speed_radps = float(
-            self.declare_parameter("avoid_turn_speed_radps", 0.75).value
+            self.declare_parameter("avoid_turn_speed_radps", 0.90).value
         )
 
-        self.min_turn_deg = float(self.declare_parameter("min_turn_deg", 25.0).value)
-        self.max_turn_deg = float(self.declare_parameter("max_turn_deg", 120.0).value)
+        self.min_turn_deg = float(self.declare_parameter("min_turn_deg", 35.0).value)
+        self.max_turn_deg = float(self.declare_parameter("max_turn_deg", 160.0).value)
         self.min_walk_distance_m = float(
-            self.declare_parameter("min_walk_distance_m", 0.8).value
+            self.declare_parameter("min_walk_distance_m", 1.2).value
         )
         self.max_walk_distance_m = float(
-            self.declare_parameter("max_walk_distance_m", 2.0).value
+            self.declare_parameter("max_walk_distance_m", 3.5).value
         )
 
         self.avoid_threshold_m = float(
@@ -58,6 +58,12 @@ class WanderNode(Node):
         )
         self.side_sector_max_deg = float(
             self.declare_parameter("side_sector_max_deg", 80.0).value
+        )
+        self.avoid_extra_turn_deg = float(
+            self.declare_parameter("avoid_extra_turn_deg", 18.0).value
+        )
+        self.max_avoid_turn_s = float(
+            self.declare_parameter("max_avoid_turn_s", 8.0).value
         )
 
         self.stop_duration_s = float(
@@ -129,6 +135,7 @@ class WanderNode(Node):
         now = time.monotonic()
         front = self.sector_min(-self.front_half_angle_deg, self.front_half_angle_deg)
         blocked = math.isfinite(front) and front < self.avoid_threshold_m
+        clear = (not math.isfinite(front)) or front > self.clear_threshold_m
         scan_stale = self.scan_is_stale(now)
 
         if scan_stale:
@@ -140,6 +147,9 @@ class WanderNode(Node):
         if blocked and self.phase not in ("avoid_stop", "avoid_turn"):
             self.start_avoidance()
 
+        if self.phase == "avoid_turn" and clear:
+            self.start_avoid_extra_turn()
+
         if now >= self.phase_end_time:
             self.advance_phase()
 
@@ -149,7 +159,7 @@ class WanderNode(Node):
                 self.publish_move(0.0, 0.0)
             else:
                 self.publish_move(self.forward_speed_mps, 0.0)
-        elif self.phase in ("turn", "avoid_turn"):
+        elif self.phase in ("turn", "avoid_turn", "avoid_extra_turn"):
             self.publish_move(0.0, self.turn_direction * self.current_turn_speed())
         else:
             self.publish_move(0.0, 0.0)
@@ -166,6 +176,8 @@ class WanderNode(Node):
         elif self.phase == "avoid_stop":
             self.start_avoid_turn()
         elif self.phase == "avoid_turn":
+            self.start_avoid_turn()
+        elif self.phase == "avoid_extra_turn":
             self.start_random_walk()
         elif self.phase == "waiting_for_scan":
             self.start_random_turn()
@@ -188,9 +200,13 @@ class WanderNode(Node):
         self.set_phase("avoid_stop", self.stop_duration_s)
 
     def start_avoid_turn(self):
-        angle_rad = math.radians(random.uniform(70.0, 140.0))
-        duration = angle_rad / max(abs(self.avoid_turn_speed_radps), 0.01)
-        self.set_phase("avoid_turn", duration)
+        self.set_phase("avoid_turn", self.max_avoid_turn_s)
+
+    def start_avoid_extra_turn(self):
+        duration = math.radians(self.avoid_extra_turn_deg) / max(
+            abs(self.avoid_turn_speed_radps), 0.01
+        )
+        self.set_phase("avoid_extra_turn", duration)
 
     def set_phase(self, phase: str, duration_s: float):
         self.phase = phase
