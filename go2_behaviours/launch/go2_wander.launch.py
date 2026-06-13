@@ -15,6 +15,11 @@ def generate_launch_description():
         "config",
         "behaviour_params.yaml",
     )
+    cmd_vel_bridge_params_file = os.path.join(
+        get_package_share_directory("go2_utils"),
+        "config",
+        "cmd_vel_bridge_params.yaml",
+    )
 
     utils_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -35,11 +40,11 @@ def generate_launch_description():
                 parameters=[params_file],
             ),
             Node(
-                package="go2_behaviours",
+                package="go2_utils",
                 executable="cmd_vel_bridge_node",
                 name="cmd_vel_bridge_node",
                 output="screen",
-                parameters=[params_file],
+                parameters=[cmd_vel_bridge_params_file],
             ),
             Node(
                 package="go2_behaviours",

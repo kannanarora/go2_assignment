@@ -9,7 +9,7 @@ def generate_launch_description():
     wav_file_arg = DeclareLaunchArgument(
         'wav_file',
         default_value=PathJoinSubstitution(
-            [FindPackageShare('go2_behaviours'), 'sounds', 'go2_bark.wav']
+            [FindPackageShare('go2_utils'), 'sounds', 'go2_bark.wav']
         ),
         description='Absolute path to the WAV file to upload and play',
     )
@@ -21,7 +21,7 @@ def generate_launch_description():
     )
 
     audiohub_player_node = Node(
-        package='go2_behaviours',
+        package='go2_utils',
         executable='audiohub_player_node',
         name='audiohub_player_node',
         output='screen',
