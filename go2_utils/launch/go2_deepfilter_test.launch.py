@@ -9,6 +9,7 @@ def generate_launch_description():
     output_path = LaunchConfiguration("output_path")
     raw_output_path = LaunchConfiguration("raw_output_path")
     record_seconds = LaunchConfiguration("record_seconds")
+    start_delay = LaunchConfiguration("start_delay")
 
     return LaunchDescription([
         DeclareLaunchArgument("audio_topic", default_value="/audiosender"),
@@ -18,7 +19,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "raw_output_path", default_value="/tmp/go2_deepfilter_raw.wav"
         ),
-        DeclareLaunchArgument("record_seconds", default_value="6.0"),
+        DeclareLaunchArgument("record_seconds", default_value="10.0"),
+        DeclareLaunchArgument("start_delay", default_value="3.0"),
         Node(
             package="go2_utils",
             executable="go2_deepfilter_test_node",
@@ -29,6 +31,7 @@ def generate_launch_description():
                 "output_path": output_path,
                 "raw_output_path": raw_output_path,
                 "record_seconds": record_seconds,
+                "start_delay": start_delay,
             }],
         ),
     ])

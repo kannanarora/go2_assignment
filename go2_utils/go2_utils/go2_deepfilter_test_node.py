@@ -27,12 +27,14 @@ class Go2DeepFilterTestNode(Node):
         self.declare_parameter("audio_topic", "/audiosender")
         self.declare_parameter("output_path", "/tmp/go2_deepfilter_clean.wav")
         self.declare_parameter("raw_output_path", "/tmp/go2_deepfilter_raw.wav")
-        self.declare_parameter("record_seconds", 6.0)
+        self.declare_parameter("record_seconds", 10.0)
+        self.declare_parameter("start_delay", 3.0)
 
         self.audio_topic = self.get_parameter("audio_topic").value
         self.output_path = self.get_parameter("output_path").value
         self.raw_output_path = self.get_parameter("raw_output_path").value
         self.record_seconds = float(self.get_parameter("record_seconds").value)
+        self.start_delay = float(self.get_parameter("start_delay").value)
 
         self.opus_rate = 48000
         self.opus_channels = 2
@@ -42,7 +44,9 @@ class Go2DeepFilterTestNode(Node):
 
         self.frames = []
         self.samples_collected = 0
+        self.next_progress = self.opus_rate  # log progress every ~1 s
         self.max_samples = int(self.record_seconds * self.opus_rate)
+        self.recording = False
         self.done = False
 
         self.get_logger().info("Loading DeepFilterNet")
@@ -58,13 +62,24 @@ class Go2DeepFilterTestNode(Node):
             qos_profile_sensor_data,
         )
 
+        self.countdown = int(round(self.start_delay))
+        self.get_logger().info("Get ready to speak...")
+        self.timer = self.create_timer(1.0, self.countdown_tick)
+
+    def countdown_tick(self):
+        if self.countdown > 0:
+            self.get_logger().info("Recording in %d..." % self.countdown)
+            self.countdown -= 1
+            return
+
+        self.timer.cancel()
+        self.recording = True
         self.get_logger().info(
-            "Recording %s for %.1f seconds, then denoising"
-            % (self.audio_topic, self.record_seconds)
+            "RECORDING NOW - speak! (%.1f seconds)" % self.record_seconds
         )
 
     def audio_callback(self, msg):
-        if self.done:
+        if self.done or not self.recording:
             return
 
         try:
@@ -82,6 +97,13 @@ class Go2DeepFilterTestNode(Node):
 
         self.frames.append(mono)
         self.samples_collected += len(mono)
+
+        if self.samples_collected >= self.next_progress:
+            elapsed = self.samples_collected / self.opus_rate
+            self.get_logger().info(
+                "Recording... %.0f/%.0f s" % (elapsed, self.record_seconds)
+            )
+            self.next_progress += self.opus_rate
 
         if self.samples_collected >= self.max_samples:
             self.done = True
