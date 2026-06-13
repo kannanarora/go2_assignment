@@ -1,0 +1,13 @@
+person_tracker_node:
+  ros__parameters:
+    yolo_topic: /yolo/tracking
+    scan_topic: /front_scan
+    person_track_topic: /person_track
+    person_nearby_topic: /person_nearby
+    image_width_px: 640.0
+    camera_horizontal_fov_deg: 90.0
+    scan_sector_half_angle_deg: 5.0
+    nearby_threshold_m: 1.5
+    detection_timeout_s: 0.7
+    no_detection_publish_hz: 2.0
+    min_confidence: 0.35
