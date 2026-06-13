@@ -174,6 +174,7 @@ class Go2WebRtcCameraClient:
         self.pc = None
         self.data_channel = None
         self.validation_result = "PENDING"
+        self._video_request_count = 0
 
     async def run(self):
         try:
@@ -196,6 +197,8 @@ class Go2WebRtcCameraClient:
 
         await self.connect()
         while self.pc.connectionState not in ("closed", "failed"):
+            if self.pc.connectionState == "connected":
+                self.request_video_if_possible()
             await asyncio.sleep(0.2)
 
     def on_connection_state_change(self):
@@ -211,6 +214,8 @@ class Go2WebRtcCameraClient:
         if self.data_channel.readyState != "open":
             self.data_channel._setReadyState("open")
         self.log.info("WebRTC data channel open")
+        self.request_video()
+        self.disable_traffic_saving(True)
 
     def on_data_channel_message(self, message):
         if not isinstance(message, str):
@@ -231,9 +236,15 @@ class Go2WebRtcCameraClient:
         self.log.info("Receiving WebRTC video track")
         while True:
             try:
-                frame = await track.recv()
+                frame = await asyncio.wait_for(track.recv(), timeout=5.0)
                 self.frame_callback(frame.to_ndarray(format="bgr24"))
                 await asyncio.sleep(0)
+            except asyncio.TimeoutError:
+                self.log.warn(
+                    "WebRTC video track is open, but no frame arrived for 5s; "
+                    "requesting video again"
+                )
+                self.request_video_if_possible()
             except Exception as exc:
                 self.log.error("WebRTC video frame error: %s" % exc)
                 break
@@ -253,7 +264,17 @@ class Go2WebRtcCameraClient:
 
     def request_video(self):
         self.publish("", "on", "vid")
+        self._video_request_count += 1
         self.log.info("Requested WebRTC video")
+
+    def request_video_if_possible(self):
+        if self.data_channel is None or self.data_channel.readyState != "open":
+            return
+
+        if self._video_request_count >= 5:
+            return
+
+        self.request_video()
 
     def disable_traffic_saving(self, enabled: bool):
         data = {
