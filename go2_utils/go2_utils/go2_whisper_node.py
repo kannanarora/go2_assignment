@@ -73,6 +73,10 @@ class Go2WhisperNode(Node):
         # DeepFilterNet noise reduction.
         self.declare_parameter("enable_denoise", True)
 
+        # Diagnostics: log levels + transcribe raw and denoised side by side.
+        self.declare_parameter("debug", True)
+        self.declare_parameter("transcribe_raw", True)
+
         # Whisper command bias.
         self.declare_parameter(
             "initial_prompt",
@@ -98,6 +102,8 @@ class Go2WhisperNode(Node):
         self.fp16 = bool(self.get_parameter("fp16").value)
 
         self.enable_denoise = bool(self.get_parameter("enable_denoise").value)
+        self.debug = bool(self.get_parameter("debug").value)
+        self.transcribe_raw = bool(self.get_parameter("transcribe_raw").value)
 
         self.initial_prompt = self.get_parameter("initial_prompt").value
 
@@ -213,6 +219,22 @@ class Go2WhisperNode(Node):
         )
         return np.frombuffer(out, dtype=np.int16)
 
+    def transcribe(self, audio_f32):
+        result = self.model.transcribe(
+            audio_f32,
+            language=self.language,
+            fp16=self.fp16,
+            verbose=False,
+            condition_on_previous_text=False,
+            temperature=0.0,
+            no_speech_threshold=0.6,
+            initial_prompt=self.initial_prompt,
+        )
+        text = result.get("text", "").strip()
+        segments = result.get("segments", [])
+        no_speech = segments[0].get("no_speech_prob") if segments else None
+        return text, no_speech
+
     def worker_loop(self):
         while self.running:
             chunk = None
@@ -225,41 +247,43 @@ class Go2WhisperNode(Node):
                 time.sleep(0.05)
                 continue
 
-            raw_rms = audioop.rms(chunk, 2)
-
             try:
+                raw_rms = audioop.rms(chunk, 2)
                 audio48_i16 = np.frombuffer(chunk, dtype=np.int16)
 
                 if self.denoiser is not None:
-                    cleaned48_f32 = self.denoiser.enhance(audio48_i16)
+                    cleaned_f32 = self.denoiser.enhance(audio48_i16)
                     cleaned48_i16 = np.clip(
-                        cleaned48_f32 * 32768.0, -32768, 32767
+                        cleaned_f32 * 32768.0, -32768, 32767
                     ).astype(np.int16)
                 else:
                     cleaned48_i16 = audio48_i16
 
-                audio16_i16 = self.resample_to_16k(cleaned48_i16)
-                audio_f32 = audio16_i16.astype(np.float32) / 32768.0
+                clean16 = self.resample_to_16k(cleaned48_i16)
+                clean_rms = audioop.rms(clean16.tobytes(), 2)
+                clean_f32 = clean16.astype(np.float32) / 32768.0
 
-                clean_rms = audioop.rms(audio16_i16.tobytes(), 2)
+                text, nsp = self.transcribe(clean_f32)
 
-                if raw_rms < self.min_rms and clean_rms < self.min_rms:
-                    continue
-
-                result = self.model.transcribe(
-                    audio_f32,
-                    language=self.language,
-                    fp16=self.fp16,
-                    verbose=False,
-                    condition_on_previous_text=False,
-                    temperature=0.0,
-                    no_speech_threshold=0.75,
-                    logprob_threshold=-0.8,
-                    compression_ratio_threshold=2.4,
-                    initial_prompt=self.initial_prompt,
-                )
-
-                text = result.get("text", "").strip()
+                if self.debug:
+                    line = "raw_rms=%d clean_rms=%d | clean='%s' nsp=%s" % (
+                        raw_rms,
+                        clean_rms,
+                        text,
+                        ("%.2f" % nsp) if nsp is not None else "na",
+                    )
+                    if self.transcribe_raw:
+                        raw16 = self.resample_to_16k(audio48_i16)
+                        raw_f32 = raw16.astype(np.float32) / 32768.0
+                        rtext, rnsp = self.transcribe(raw_f32)
+                        line += " || raw='%s' nsp=%s" % (
+                            rtext,
+                            ("%.2f" % rnsp) if rnsp is not None else "na",
+                        )
+                    self.get_logger().info(line)
+                else:
+                    if raw_rms < self.min_rms and clean_rms < self.min_rms:
+                        continue
 
                 if len(text) < self.min_text_length:
                     continue
@@ -274,7 +298,8 @@ class Go2WhisperNode(Node):
                 msg.data = text
                 self.pub.publish(msg)
 
-                self.get_logger().info("Heard: %s" % text)
+                if not self.debug:
+                    self.get_logger().info("Heard: %s" % text)
 
             except Exception as exc:
                 self.get_logger().error("Whisper failed: %s" % exc)
