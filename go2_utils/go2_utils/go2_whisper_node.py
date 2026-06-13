@@ -23,6 +23,7 @@ import numpy as np
 import opuslib
 import rclpy
 import torch
+import whisper
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import String
@@ -72,18 +73,9 @@ class Go2WhisperNode(Node):
         # Jetson CUDA works, but fp16 can produce NaNs on this setup.
         self.declare_parameter("fp16", False)
 
-        # ASR backend: "faster" (CTranslate2, faster + built-in VAD) or
-        # "openai" (reference whisper).
-        self.declare_parameter("backend", "faster")
-        self.declare_parameter("device", "")        # "" = auto
-        self.declare_parameter("compute_type", "")  # "" = auto
-        self.declare_parameter("vad_filter", True)  # faster backend only
-        self.declare_parameter("beam_size", 5)      # faster backend only
-
         # DeepFilterNet noise reduction.
         self.declare_parameter("enable_denoise", True)
         self.declare_parameter("atten_lim_db", 12.0)  # 0 means no limit
-        self.declare_parameter("output_gain", 1.0)
 
         # Whisper command bias.
         self.declare_parameter(
@@ -109,16 +101,9 @@ class Go2WhisperNode(Node):
 
         self.fp16 = bool(self.get_parameter("fp16").value)
 
-        self.backend = self.get_parameter("backend").value
-        self.device_param = self.get_parameter("device").value
-        self.compute_type = self.get_parameter("compute_type").value
-        self.vad_filter = bool(self.get_parameter("vad_filter").value)
-        self.beam_size = int(self.get_parameter("beam_size").value)
-
         self.enable_denoise = bool(self.get_parameter("enable_denoise").value)
         atten = float(self.get_parameter("atten_lim_db").value)
         self.atten_lim_db = atten if atten > 0.0 else None
-        self.output_gain = float(self.get_parameter("output_gain").value)
 
         self.initial_prompt = self.get_parameter("initial_prompt").value
 
@@ -156,12 +141,24 @@ class Go2WhisperNode(Node):
             )
             self.overlap_bytes = int(0.25 * self.chunk_bytes)
 
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        if device == "cpu" and self.fp16:
+            self.get_logger().warn(
+                "fp16=True requested, but device is CPU. Forcing fp16=False."
+            )
+            self.fp16 = False
+
         self.denoiser = None
         if self.enable_denoise:
             self.get_logger().info("Loading DeepFilterNet")
             self.denoiser = DeepFilterDenoiser(atten_lim_db=self.atten_lim_db)
 
-        self.load_asr()
+        self.get_logger().info(
+            "Loading Whisper model '%s' on %s" % (self.model_name, device)
+        )
+
+        self.model = whisper.load_model(self.model_name, device=device)
 
         self.worker = threading.Thread(target=self.worker_loop, daemon=True)
         self.worker.start()
@@ -170,82 +167,18 @@ class Go2WhisperNode(Node):
         self.get_logger().info("Publishing text on %s" % self.text_topic)
         self.get_logger().info(
             (
-                "backend=%s chunk_seconds=%.2f overlap_seconds=%.2f min_rms=%d "
-                "pending_chunks=%d denoise=%s vad_filter=%s"
+                "chunk_seconds=%.2f overlap_seconds=%.2f min_rms=%d "
+                "pending_chunks=%d fp16=%s denoise=%s"
             )
             % (
-                self.backend,
                 self.chunk_seconds,
                 self.overlap_seconds,
                 self.min_rms,
                 self.pending_chunks,
+                str(self.fp16),
                 str(self.enable_denoise),
-                str(self.vad_filter),
             )
         )
-
-    def load_asr(self):
-        if self.backend == "faster":
-            import ctranslate2
-            from faster_whisper import WhisperModel
-
-            cuda_ok = ctranslate2.get_cuda_device_count() > 0
-            device = self.device_param or ("cuda" if cuda_ok else "cpu")
-            compute_type = self.compute_type or (
-                "float16" if device == "cuda" else "int8"
-            )
-            self.get_logger().info(
-                "Loading faster-whisper '%s' on %s (%s)"
-                % (self.model_name, device, compute_type)
-            )
-            self.fw_model = WhisperModel(
-                self.model_name, device=device, compute_type=compute_type
-            )
-        else:
-            import whisper
-
-            device = self.device_param or (
-                "cuda" if torch.cuda.is_available() else "cpu"
-            )
-            if device == "cpu" and self.fp16:
-                self.get_logger().warn(
-                    "fp16=True requested, but device is CPU. Forcing fp16=False."
-                )
-                self.fp16 = False
-            self.get_logger().info(
-                "Loading whisper '%s' on %s" % (self.model_name, device)
-            )
-            self.model = whisper.load_model(self.model_name, device=device)
-
-    def transcribe(self, audio_f32):
-        if self.backend == "faster":
-            segments, _ = self.fw_model.transcribe(
-                audio_f32,
-                language=self.language,
-                beam_size=self.beam_size,
-                condition_on_previous_text=False,
-                temperature=0.0,
-                no_speech_threshold=0.75,
-                log_prob_threshold=-0.8,
-                compression_ratio_threshold=2.4,
-                initial_prompt=self.initial_prompt,
-                vad_filter=self.vad_filter,
-            )
-            return " ".join(s.text for s in segments).strip()
-
-        result = self.model.transcribe(
-            audio_f32,
-            language=self.language,
-            fp16=self.fp16,
-            verbose=False,
-            condition_on_previous_text=False,
-            temperature=0.0,
-            no_speech_threshold=0.75,
-            logprob_threshold=-0.8,
-            compression_ratio_threshold=2.4,
-            initial_prompt=self.initial_prompt,
-        )
-        return result.get("text", "").strip()
 
     def audio_callback(self, msg: AudioData):
         try:
@@ -305,8 +238,6 @@ class Go2WhisperNode(Node):
 
                 if self.denoiser is not None:
                     cleaned48_f32 = self.denoiser.enhance(audio48_i16)
-                    if self.output_gain != 1.0:
-                        cleaned48_f32 = cleaned48_f32 * self.output_gain
                     cleaned48_i16 = np.clip(
                         cleaned48_f32 * 32768.0, -32768, 32767
                     ).astype(np.int16)
@@ -318,19 +249,25 @@ class Go2WhisperNode(Node):
 
                 clean_rms = audioop.rms(audio16_i16.tobytes(), 2)
 
-                # After DeepFilterNet, non-speech chunks collapse toward
-                # silence, so the denoised RMS is a much better speech gate
-                # than the raw signal (which always reads high from lidar).
-                gate_rms = clean_rms if self.denoiser is not None else raw_rms
-                if gate_rms < self.min_rms:
+                if raw_rms < self.min_rms and clean_rms < self.min_rms:
                     continue
 
-                text = self.transcribe(audio_f32)
+                result = self.model.transcribe(
+                    audio_f32,
+                    language=self.language,
+                    fp16=self.fp16,
+                    verbose=False,
+                    condition_on_previous_text=False,
+                    temperature=0.0,
+                    no_speech_threshold=0.75,
+                    logprob_threshold=-0.8,
+                    compression_ratio_threshold=2.4,
+                    initial_prompt=self.initial_prompt,
+                )
 
-                # Reject hallucinated noise output like "!!!!!" by requiring
-                # a minimum number of actual letters, not just characters.
-                letters = sum(c.isalpha() for c in text)
-                if letters < self.min_text_length:
+                text = result.get("text", "").strip()
+
+                if len(text) < self.min_text_length:
                     continue
 
                 # Avoid immediate duplicate chunks caused by overlap.
@@ -343,10 +280,7 @@ class Go2WhisperNode(Node):
                 msg.data = text
                 self.pub.publish(msg)
 
-                self.get_logger().info(
-                    "Heard: %s  (raw_rms=%d clean_rms=%d)"
-                    % (text, raw_rms, clean_rms)
-                )
+                self.get_logger().info("Heard: %s" % text)
 
             except Exception as exc:
                 self.get_logger().error("Whisper failed: %s" % exc)
