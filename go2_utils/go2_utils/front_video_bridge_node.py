@@ -33,11 +33,11 @@ class FrontVideoBridgeNode(Node):
             self.declare_parameter("compressed_max_fps", 5.0).value
         )
         self.jpeg_quality = int(self.declare_parameter("jpeg_quality", 70).value)
-        self.decode_buffer_max_bytes = int(
-            self.declare_parameter("decode_buffer_max_bytes", 1048576).value
-        )
         self.log_decode_errors = bool(
             self.declare_parameter("log_decode_errors", False).value
+        )
+        self.log_first_frame_info = bool(
+            self.declare_parameter("log_first_frame_info", True).value
         )
 
         try:
@@ -53,15 +53,16 @@ class FrontVideoBridgeNode(Node):
         self._last_raw_publish_time = 0.0
         self._last_compressed_publish_time = 0.0
         self._warned_no_cv2 = False
-        self._decode_buffer = bytearray()
+        self._logged_first_payload = False
+        self._logged_first_frame = False
 
         self._cv2 = None
-        if self.publish_compressed:
-            try:
-                import cv2
+        try:
+            import cv2
 
-                self._cv2 = cv2
-            except ImportError:
+            self._cv2 = cv2
+        except ImportError:
+            if self.publish_compressed:
                 self.get_logger().warn(
                     "Compressed image output requires python3-opencv. "
                     "Raw image output will still be published."
@@ -93,14 +94,30 @@ class FrontVideoBridgeNode(Node):
 
     def video_callback(self, serialized_msg: bytes):
         encoded = self.extract_stream_bytes(serialized_msg)
-        encoded = self.strip_to_h264_start_code(encoded)
 
         if not encoded:
             return
 
-        for packet_bytes in self.extract_complete_h264_packets(encoded):
+        self.log_first_payload(encoded)
+
+        jpeg_bgr = self.decode_image_payload(encoded)
+        if jpeg_bgr is not None:
+            self.publish_bgr(jpeg_bgr)
+            return
+
+        encoded = self.strip_to_h264_start_code(encoded)
+        if not encoded:
+            return
+
+        try:
+            packets = self.decoder.parse(encoded)
+        except Exception as exc:
+            if self.log_decode_errors:
+                self.get_logger().warn("H.264 parse failed: %s" % exc)
+            return
+
+        for packet in packets:
             try:
-                packet = self._av.Packet(packet_bytes)
                 frames = self.decoder.decode(packet)
             except Exception as exc:
                 if self.log_decode_errors:
@@ -112,10 +129,19 @@ class FrontVideoBridgeNode(Node):
 
     def publish_frame(self, frame):
         bgr = frame.to_ndarray(format="bgr24")
+        self.publish_bgr(bgr)
+
+    def publish_bgr(self, bgr):
+        self.log_first_frame(bgr)
+
         now = time.monotonic()
         stamp = self.get_clock().now().to_msg()
 
-        if self.publish_raw and self.should_publish(now, self._last_raw_publish_time, self.raw_max_fps):
+        if self.publish_raw and self.should_publish(
+            now,
+            self._last_raw_publish_time,
+            self.raw_max_fps,
+        ):
             image_msg = self.bgr_to_image_msg(bgr, stamp)
             self.image_pub.publish(image_msg)
             self._last_raw_publish_time = now
@@ -139,53 +165,48 @@ class FrontVideoBridgeNode(Node):
 
         return now - last_publish_time >= 1.0 / max_fps
 
-    def extract_complete_h264_packets(self, encoded: bytes):
-        self._decode_buffer.extend(encoded)
+    def log_first_payload(self, data: bytes):
+        if self._logged_first_payload or not self.log_first_frame_info:
+            return
 
-        if len(self._decode_buffer) > self.decode_buffer_max_bytes:
-            start = self.find_last_start_code(self._decode_buffer)
-            if start > 0:
-                del self._decode_buffer[:start]
-            else:
-                self._decode_buffer.clear()
-                return []
+        self._logged_first_payload = True
+        start = data.find(b"\x00\x00\x00\x01")
+        if start < 0:
+            start = data.find(b"\x00\x00\x01")
 
-        start_codes = self.find_start_codes(self._decode_buffer)
-        if len(start_codes) < 2:
-            return []
+        self.get_logger().info(
+            "First %s payload: %d bytes, h264_start_offset=%d, jpeg=%s"
+            % (
+                self.stream,
+                len(data),
+                start,
+                data.startswith(b"\xff\xd8"),
+            )
+        )
 
-        packets = []
-        for i in range(len(start_codes) - 1):
-            start = start_codes[i]
-            end = start_codes[i + 1]
-            if end > start:
-                packets.append(bytes(self._decode_buffer[start:end]))
+    def log_first_frame(self, bgr):
+        if self._logged_first_frame or not self.log_first_frame_info:
+            return
 
-        del self._decode_buffer[: start_codes[-1]]
-        return packets
+        self._logged_first_frame = True
+        self.get_logger().info(
+            "Decoded front camera frame: width=%d height=%d encoding=bgr8"
+            % (bgr.shape[1], bgr.shape[0])
+        )
 
-    def find_start_codes(self, data):
-        starts = []
-        i = 0
-        size = len(data)
+    def decode_image_payload(self, data: bytes):
+        if self._cv2 is None or not data.startswith(b"\xff\xd8"):
+            return None
 
-        while i < size - 3:
-            if data[i : i + 4] == b"\x00\x00\x00\x01":
-                starts.append(i)
-                i += 4
-            elif data[i : i + 3] == b"\x00\x00\x01":
-                starts.append(i)
-                i += 3
-            else:
-                i += 1
+        try:
+            import numpy as np
 
-        return starts
-
-    def find_last_start_code(self, data):
-        starts = self.find_start_codes(data)
-        if not starts:
-            return -1
-        return starts[-1]
+            image = np.frombuffer(data, dtype=np.uint8)
+            return self._cv2.imdecode(image, self._cv2.IMREAD_COLOR)
+        except Exception as exc:
+            if self.log_decode_errors:
+                self.get_logger().warn("Image decode failed: %s" % exc)
+            return None
 
     def extract_stream_bytes(self, serialized_msg: bytes) -> bytes:
         streams = self.parse_front_video_cdr(serialized_msg)
