@@ -15,7 +15,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
     qos_profile_sensor_data,
 )
-from sensor_msgs.msg import Image, LaserScan
+from sensor_msgs.msg import CompressedImage, Image, LaserScan
 from std_msgs.msg import Bool
 
 
@@ -36,6 +36,10 @@ class PersonTrackerNode(Node):
         self.debug_image_topic = self.declare_parameter(
             "debug_image_topic", "/person_tracker/debug_image"
         ).value
+        self.debug_compressed_image_topic = self.declare_parameter(
+            "debug_compressed_image_topic",
+            "/person_tracker/debug_image/compressed",
+        ).value
 
         self.model_path = self.declare_parameter("model_path", "").value
         self.input_width = int(self.declare_parameter("input_width", 640).value)
@@ -47,6 +51,12 @@ class PersonTrackerNode(Node):
         )
         self.publish_debug_image = bool(
             self.declare_parameter("publish_debug_image", True).value
+        )
+        self.debug_compressed_max_fps = float(
+            self.declare_parameter("debug_compressed_max_fps", 3.0).value
+        )
+        self.debug_jpeg_quality = int(
+            self.declare_parameter("debug_jpeg_quality", 70).value
         )
         self.debug_log_interval_s = float(
             self.declare_parameter("debug_log_interval_s", 2.0).value
@@ -82,6 +92,7 @@ class PersonTrackerNode(Node):
         self.last_visible = False
         self.frame_count = 0
         self.last_debug_log_time = 0.0
+        self.last_debug_compressed_publish_time = 0.0
         self.last_best_person_score = 0.0
         self.last_candidate_count = 0
         self.last_output_shape = None
@@ -110,8 +121,14 @@ class PersonTrackerNode(Node):
         self.track_pub = self.create_publisher(PersonTrack, self.person_track_topic, 10)
         self.nearby_pub = self.create_publisher(Bool, self.person_nearby_topic, 10)
         self.debug_pub = None
+        self.debug_compressed_pub = None
         if self.publish_debug_image:
             self.debug_pub = self.create_publisher(Image, self.debug_image_topic, 1)
+            self.debug_compressed_pub = self.create_publisher(
+                CompressedImage,
+                self.debug_compressed_image_topic,
+                1,
+            )
 
         timer_period = 1.0 / max(self.no_detection_publish_hz, 0.1)
         self.no_detection_timer = self.create_timer(
@@ -349,7 +366,16 @@ class PersonTrackerNode(Node):
         )
 
     def maybe_publish_debug_image(self, image, header, detection):
-        if self.debug_pub is None or self.debug_pub.get_subscription_count() == 0:
+        wants_raw = (
+            self.debug_pub is not None
+            and self.debug_pub.get_subscription_count() > 0
+        )
+        wants_compressed = (
+            self.debug_compressed_pub is not None
+            and self.debug_compressed_pub.get_subscription_count() > 0
+            and self.should_publish_debug_compressed()
+        )
+        if not wants_raw and not wants_compressed:
             return
 
         debug = image.copy()
@@ -377,6 +403,15 @@ class PersonTrackerNode(Node):
             self.cv2.LINE_AA,
         )
 
+        if wants_compressed:
+            msg = self.debug_to_compressed_msg(debug, header)
+            if msg is not None:
+                self.debug_compressed_pub.publish(msg)
+                self.last_debug_compressed_publish_time = time.monotonic()
+
+        if not wants_raw:
+            return
+
         msg = Image()
         msg.header = header
         msg.height = int(debug.shape[0])
@@ -386,6 +421,30 @@ class PersonTrackerNode(Node):
         msg.step = int(debug.shape[1] * 3)
         msg.data = debug.tobytes()
         self.debug_pub.publish(msg)
+
+    def should_publish_debug_compressed(self):
+        if self.debug_compressed_max_fps <= 0.0:
+            return True
+        return (
+            time.monotonic() - self.last_debug_compressed_publish_time
+            >= 1.0 / self.debug_compressed_max_fps
+        )
+
+    def debug_to_compressed_msg(self, debug, header):
+        quality = max(1, min(100, self.debug_jpeg_quality))
+        ok, encoded = self.cv2.imencode(
+            ".jpg",
+            debug,
+            [int(self.cv2.IMWRITE_JPEG_QUALITY), quality],
+        )
+        if not ok:
+            return None
+
+        msg = CompressedImage()
+        msg.header = header
+        msg.format = "jpeg"
+        msg.data = encoded.tobytes()
+        return msg
 
     def image_x_to_bearing(self, image_x: float, image_width_px: int) -> float:
         half_width = max(image_width_px * 0.5, 1.0)

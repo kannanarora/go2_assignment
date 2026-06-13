@@ -30,7 +30,6 @@ setup(
             "odom_to_tf_bridge = go2_utils.odom_to_tf_bridge:main",
             "cloud_throttle = go2_utils.cloud_throttle:main",
             "cmd_vel_bridge_node = go2_utils.cmd_vel_bridge_node:main",
-            "front_video_bridge_node = go2_utils.front_video_bridge_node:main",
             "gstreamer_camera_node = go2_utils.gstreamer_camera_node:main",
             "webrtc_camera_node = go2_utils.webrtc_camera_node:main",
             "person_tracker_node = go2_utils.person_tracker_node:main",
