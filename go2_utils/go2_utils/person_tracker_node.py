@@ -24,7 +24,7 @@ class PersonTrackerNode(Node):
         super().__init__("person_tracker_node")
 
         self.image_topic = self.declare_parameter(
-            "image_topic", "/camera/image_raw"
+            "image_topic", "/camera/color/image"
         ).value
         self.scan_topic = self.declare_parameter("scan_topic", "/front_scan").value
         self.person_track_topic = self.declare_parameter(

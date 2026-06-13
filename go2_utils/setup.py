@@ -31,6 +31,7 @@ setup(
             "cloud_throttle = go2_utils.cloud_throttle:main",
             "cmd_vel_bridge_node = go2_utils.cmd_vel_bridge_node:main",
             "front_video_bridge_node = go2_utils.front_video_bridge_node:main",
+            "webrtc_camera_node = go2_utils.webrtc_camera_node:main",
             "person_tracker_node = go2_utils.person_tracker_node:main",
             "audiohub_player_node = go2_utils.audiohub_player_node:main",
             "whisper_node = go2_utils.whisper_node:main",

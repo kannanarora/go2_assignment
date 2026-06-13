@@ -17,10 +17,10 @@ class FrontVideoBridgeNode(Node):
             "input_topic", "/frontvideostream"
         ).value
         self.output_topic = self.declare_parameter(
-            "output_topic", "/camera/image_raw"
+            "output_topic", "/camera/color/image"
         ).value
         self.compressed_output_topic = self.declare_parameter(
-            "compressed_output_topic", "/camera/image_raw/compressed"
+            "compressed_output_topic", "/camera/color/image/compressed"
         ).value
         self.frame_id = self.declare_parameter("frame_id", "front_camera").value
         self.stream = self.declare_parameter("stream", "video720p").value
