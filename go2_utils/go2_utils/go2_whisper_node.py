@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 
 """
-Decode the Go2 audio stream, denoise it with DeepFilterNet, and transcribe
-it with Whisper.
+Decode the Go2 audio stream, segment it into utterances with energy-based
+VAD endpointing, denoise each utterance with DeepFilterNet, and transcribe
+with faster-whisper.
+
+Instead of fixed time windows (which slice words mid-command), this waits
+for you to speak and pause, then transcribes the whole utterance once.
 
 Expected input:
-  /audiosender  unitree_go/msg/AudioData
-
-Expected Go2 audio format:
-  Opus, 48 kHz, stereo, 20 ms packets, 960 samples per packet
+  /audiosender  unitree_go/msg/AudioData  (Opus, 48 kHz, stereo, 960/packet)
 
 Output:
   /go2/whisper/text  std_msgs/msg/String
 """
 
 import audioop
+import queue
 import threading
-import time
-from collections import deque
 
 import numpy as np
 import opuslib
@@ -30,19 +30,25 @@ from unitree_go.msg import AudioData
 
 
 class DeepFilterDenoiser:
-    """DeepFilterNet wrapper. Cleans mono 48 kHz audio in real time.
+    """DeepFilterNet wrapper. Cleans mono 48 kHz audio.
+
+    atten_lim_db caps the maximum attenuation so consonants survive
+    (12 dB worked well against the Go2 lidar noise).
     """
 
-    def __init__(self):
+    def __init__(self, atten_lim_db=None):
         from df.enhance import enhance, init_df
 
         self._enhance = enhance
         self.model, self.df_state, _ = init_df()
         self.sample_rate = self.df_state.sr()  # 48000
+        self.atten_lim_db = atten_lim_db
 
     def enhance(self, mono_i16):
         audio = torch.from_numpy(mono_i16.astype(np.float32) / 32768.0).unsqueeze(0)
-        cleaned = self._enhance(self.model, self.df_state, audio)
+        cleaned = self._enhance(
+            self.model, self.df_state, audio, atten_lim_db=self.atten_lim_db
+        )
         return cleaned.squeeze(0).cpu().numpy()
 
 
@@ -52,84 +58,75 @@ class Go2WhisperNode(Node):
 
         self.declare_parameter("audio_topic", "/audiosender")
         self.declare_parameter("text_topic", "/go2/whisper/text")
-
-        # Try "tiny.en" for fastest, "base.en" for better command recognition.
         self.declare_parameter("model_name", "base.en")
         self.declare_parameter("language", "en")
 
-        # Low-latency command settings.
-        self.declare_parameter("chunk_seconds", 1.0)
-        self.declare_parameter("overlap_seconds", 0.15)
-        self.declare_parameter("pending_chunks", 1)
-
-        # Audio gates.
-        self.declare_parameter("min_rms", 500)
+        # VAD endpointing. min_rms must sit ABOVE the noise floor (the lidar
+        # keeps raw RMS ~600), or every frame reads as speech and it never
+        # detects the pause. Tune it above your measured idle level.
+        self.declare_parameter("min_rms", 800)
+        self.declare_parameter("endpoint_silence", 0.6)   # trailing silence (s)
+        self.declare_parameter("min_utterance", 0.3)      # ignore shorter (s)
+        self.declare_parameter("max_utterance", 8.0)      # force-flush cap (s)
         self.declare_parameter("min_text_length", 2)
 
-        # Jetson CUDA works, but fp16 can produce NaNs on this setup.
-        self.declare_parameter("fp16", False)
-        self.declare_parameter("device", "")  # "" = auto, or "cpu" / "cuda"
-
-        # ASR backend: "faster" (CTranslate2, faster + built-in VAD) or
-        # "openai" (reference whisper).
-        self.declare_parameter("backend", "faster")
-        self.declare_parameter("compute_type", "")  # "" = auto
-        self.declare_parameter("vad_filter", True)   # faster backend only
-        self.declare_parameter("beam_size", 5)       # faster backend only
+        # ASR backend / engine.
+        self.declare_parameter("backend", "faster")       # "faster" or "openai"
+        self.declare_parameter("device", "")              # "" = auto
+        self.declare_parameter("compute_type", "")        # "" = auto (faster)
+        self.declare_parameter("fp16", False)             # openai only
+        self.declare_parameter("beam_size", 5)
+        self.declare_parameter("no_repeat_ngram_size", 3)
+        self.declare_parameter("vad_filter", False)       # faster internal VAD
 
         # DeepFilterNet noise reduction.
         self.declare_parameter("enable_denoise", True)
+        self.declare_parameter("atten_lim_db", 12.0)      # 0 = no limit
 
-        # Diagnostics: log levels + transcribe raw and denoised side by side.
+        # Empty by default: a command list as initial_prompt makes Whisper
+        # parrot those words on noise. Leave blank unless you know you want it.
+        self.declare_parameter("initial_prompt", "")
+
         self.declare_parameter("debug", True)
-        self.declare_parameter("transcribe_raw", True)
-
-        # Whisper command bias.
-        self.declare_parameter(
-            "initial_prompt",
-            (
-                "The robot only listens for short English voice commands: "
-                "sit, sit down, stand, stand up, stop, lie down, hello, "
-                "come here, come to me."
-            ),
-        )
 
         self.audio_topic = self.get_parameter("audio_topic").value
         self.text_topic = self.get_parameter("text_topic").value
         self.model_name = self.get_parameter("model_name").value
         self.language = self.get_parameter("language").value
 
-        self.chunk_seconds = float(self.get_parameter("chunk_seconds").value)
-        self.overlap_seconds = float(self.get_parameter("overlap_seconds").value)
-        self.pending_chunks = int(self.get_parameter("pending_chunks").value)
-
         self.min_rms = int(self.get_parameter("min_rms").value)
+        self.endpoint_silence = float(self.get_parameter("endpoint_silence").value)
+        self.min_utterance = float(self.get_parameter("min_utterance").value)
+        self.max_utterance = float(self.get_parameter("max_utterance").value)
         self.min_text_length = int(self.get_parameter("min_text_length").value)
 
-        self.fp16 = bool(self.get_parameter("fp16").value)
-        self.device_param = self.get_parameter("device").value
-
         self.backend = self.get_parameter("backend").value
+        self.device_param = self.get_parameter("device").value
         self.compute_type = self.get_parameter("compute_type").value
-        self.vad_filter = bool(self.get_parameter("vad_filter").value)
+        self.fp16 = bool(self.get_parameter("fp16").value)
         self.beam_size = int(self.get_parameter("beam_size").value)
+        self.no_repeat_ngram_size = int(
+            self.get_parameter("no_repeat_ngram_size").value
+        )
+        self.vad_filter = bool(self.get_parameter("vad_filter").value)
 
         self.enable_denoise = bool(self.get_parameter("enable_denoise").value)
-        self.debug = bool(self.get_parameter("debug").value)
-        self.transcribe_raw = bool(self.get_parameter("transcribe_raw").value)
+        atten = float(self.get_parameter("atten_lim_db").value)
+        self.atten_lim_db = atten if atten > 0.0 else None
 
-        self.initial_prompt = self.get_parameter("initial_prompt").value
+        self.initial_prompt = self.get_parameter("initial_prompt").value or None
+        self.debug = bool(self.get_parameter("debug").value)
 
         # Verified Go2 stream format.
         self.opus_rate = 48000
         self.opus_channels = 2
-        self.opus_frame_size = 960  # 20 ms at 48 kHz
+        self.opus_frame_size = 960     # 20 ms at 48 kHz
+        self.frame_ms = 20
         self.whisper_rate = 16000
 
         self.decoder = opuslib.Decoder(self.opus_rate, self.opus_channels)
 
         self.pub = self.create_publisher(String, self.text_topic, 10)
-
         self.sub = self.create_subscription(
             AudioData,
             self.audio_topic,
@@ -137,27 +134,13 @@ class Go2WhisperNode(Node):
             qos_profile_sensor_data,
         )
 
-        self.lock = threading.Lock()
-        self.buffer = bytearray()
-        self.pending = deque(maxlen=max(1, self.pending_chunks))
+        self.audio_queue = queue.Queue()
         self.running = True
-        self.last_text = ""
-
-        # Buffer at 48 kHz so DeepFilterNet runs at its native rate, then
-        # downsample to 16 kHz for Whisper after denoising.
-        self.chunk_bytes = int(self.chunk_seconds * self.opus_rate * 2)
-        self.overlap_bytes = int(self.overlap_seconds * self.opus_rate * 2)
-
-        if self.overlap_bytes >= self.chunk_bytes:
-            self.get_logger().warn(
-                "overlap_seconds must be smaller than chunk_seconds; reducing overlap."
-            )
-            self.overlap_bytes = int(0.25 * self.chunk_bytes)
 
         self.denoiser = None
         if self.enable_denoise:
             self.get_logger().info("Loading DeepFilterNet")
-            self.denoiser = DeepFilterDenoiser()
+            self.denoiser = DeepFilterDenoiser(atten_lim_db=self.atten_lim_db)
 
         self.load_asr()
 
@@ -167,19 +150,8 @@ class Go2WhisperNode(Node):
         self.get_logger().info("Listening on %s" % self.audio_topic)
         self.get_logger().info("Publishing text on %s" % self.text_topic)
         self.get_logger().info(
-            (
-                "backend=%s chunk_seconds=%.2f overlap_seconds=%.2f min_rms=%d "
-                "denoise=%s vad_filter=%s debug=%s"
-            )
-            % (
-                self.backend,
-                self.chunk_seconds,
-                self.overlap_seconds,
-                self.min_rms,
-                str(self.enable_denoise),
-                str(self.vad_filter),
-                str(self.debug),
-            )
+            "backend=%s min_rms=%d endpoint_silence=%.2f denoise=%s"
+            % (self.backend, self.min_rms, self.endpoint_silence, self.enable_denoise)
         )
 
     def load_asr(self):
@@ -206,9 +178,6 @@ class Go2WhisperNode(Node):
                 "cuda" if torch.cuda.is_available() else "cpu"
             )
             if device == "cpu" and self.fp16:
-                self.get_logger().warn(
-                    "fp16=True requested, but device is CPU. Forcing fp16=False."
-                )
                 self.fp16 = False
             self.get_logger().info(
                 "Loading whisper '%s' on %s" % (self.model_name, device)
@@ -222,10 +191,10 @@ class Go2WhisperNode(Node):
                 language=self.language,
                 beam_size=self.beam_size,
                 condition_on_previous_text=False,
-                temperature=0.0,
                 no_speech_threshold=0.6,
-                initial_prompt=self.initial_prompt,
+                no_repeat_ngram_size=self.no_repeat_ngram_size,
                 vad_filter=self.vad_filter,
+                initial_prompt=self.initial_prompt,
             )
             segs = list(segments)
             text = " ".join(s.text for s in segs).strip()
@@ -238,7 +207,6 @@ class Go2WhisperNode(Node):
             fp16=self.fp16,
             verbose=False,
             condition_on_previous_text=False,
-            temperature=0.0,
             no_speech_threshold=0.6,
             initial_prompt=self.initial_prompt,
         )
@@ -258,24 +226,12 @@ class Go2WhisperNode(Node):
             self.get_logger().warn("Opus decode failed: %s" % exc)
             return
 
-        # Stereo 48 kHz int16 -> mono 48 kHz int16. Keep at 48 kHz so the
-        # denoiser sees the full band; downsampling happens after enhancement.
+        # Stereo 48 kHz int16 -> mono 48 kHz int16. Stay at 48 kHz so the
+        # denoiser sees the full band; downsample after enhancement.
         pcm48_mono = audioop.tomono(pcm48_stereo, 2, 0.5, 0.5)
-
-        with self.lock:
-            self.buffer.extend(pcm48_mono)
-
-            if len(self.buffer) >= self.chunk_bytes:
-                chunk = bytes(self.buffer[-self.chunk_bytes:])
-                self.pending.append(chunk)
-
-                if self.overlap_bytes > 0:
-                    self.buffer = self.buffer[-self.overlap_bytes:]
-                else:
-                    self.buffer.clear()
+        self.audio_queue.put(np.frombuffer(pcm48_mono, dtype=np.int16))
 
     def resample_to_16k(self, mono_i16):
-        # 48 kHz int16 -> 16 kHz int16. Each chunk is resampled independently.
         out, _ = audioop.ratecv(
             mono_i16.tobytes(),
             2,
@@ -287,80 +243,89 @@ class Go2WhisperNode(Node):
         return np.frombuffer(out, dtype=np.int16)
 
     def worker_loop(self):
+        endpoint_ms = int(self.endpoint_silence * 1000)
+        min_samples = int(self.min_utterance * self.opus_rate)
+        max_samples = int(self.max_utterance * self.opus_rate)
+
+        utterance = []
+        utt_len = 0
+        in_speech = False
+        silence_ms = 0
+
         while self.running:
-            chunk = None
-
-            with self.lock:
-                if self.pending:
-                    chunk = self.pending.popleft()
-
-            if chunk is None:
-                time.sleep(0.05)
+            try:
+                frame = self.audio_queue.get(timeout=0.1)
+            except queue.Empty:
                 continue
 
-            try:
-                raw_rms = audioop.rms(chunk, 2)
-                audio48_i16 = np.frombuffer(chunk, dtype=np.int16)
+            loud = audioop.rms(frame.tobytes(), 2) >= self.min_rms
 
-                if self.denoiser is not None:
-                    cleaned_f32 = self.denoiser.enhance(audio48_i16)
-                    cleaned48_i16 = np.clip(
-                        cleaned_f32 * 32768.0, -32768, 32767
-                    ).astype(np.int16)
-                else:
-                    cleaned48_i16 = audio48_i16
+            if loud:
+                in_speech = True
+                silence_ms = 0
+                utterance.append(frame)
+                utt_len += len(frame)
+            elif in_speech:
+                utterance.append(frame)
+                utt_len += len(frame)
+                silence_ms += self.frame_ms
 
-                clean16 = self.resample_to_16k(cleaned48_i16)
-                clean_rms = audioop.rms(clean16.tobytes(), 2)
-                clean_f32 = clean16.astype(np.float32) / 32768.0
+            flush = in_speech and (silence_ms >= endpoint_ms or utt_len >= max_samples)
+            if flush:
+                if utt_len >= min_samples:
+                    self.finalize(np.concatenate(utterance))
+                utterance = []
+                utt_len = 0
+                in_speech = False
+                silence_ms = 0
 
-                text, nsp = self.transcribe(clean_f32)
+    def finalize(self, audio48_i16):
+        try:
+            raw_rms = audioop.rms(audio48_i16.tobytes(), 2)
 
-                if self.debug:
-                    line = "raw_rms=%d clean_rms=%d | clean='%s' nsp=%s" % (
+            if self.denoiser is not None:
+                cleaned_f32 = self.denoiser.enhance(audio48_i16)
+                cleaned48_i16 = np.clip(
+                    cleaned_f32 * 32768.0, -32768, 32767
+                ).astype(np.int16)
+            else:
+                cleaned48_i16 = audio48_i16
+
+            audio16 = self.resample_to_16k(cleaned48_i16)
+            clean_rms = audioop.rms(audio16.tobytes(), 2)
+            audio_f32 = audio16.astype(np.float32) / 32768.0
+
+            text, nsp = self.transcribe(audio_f32)
+
+            if self.debug:
+                self.get_logger().info(
+                    "utt %.1fs raw_rms=%d clean_rms=%d nsp=%s -> '%s'"
+                    % (
+                        len(audio48_i16) / self.opus_rate,
                         raw_rms,
                         clean_rms,
-                        text,
                         ("%.2f" % nsp) if nsp is not None else "na",
+                        text,
                     )
-                    if self.transcribe_raw:
-                        raw16 = self.resample_to_16k(audio48_i16)
-                        raw_f32 = raw16.astype(np.float32) / 32768.0
-                        rtext, rnsp = self.transcribe(raw_f32)
-                        line += " || raw='%s' nsp=%s" % (
-                            rtext,
-                            ("%.2f" % rnsp) if rnsp is not None else "na",
-                        )
-                    self.get_logger().info(line)
-                else:
-                    if raw_rms < self.min_rms and clean_rms < self.min_rms:
-                        continue
+                )
 
-                if len(text) < self.min_text_length:
-                    continue
+            if len(text) < self.min_text_length:
+                return
 
-                # Avoid immediate duplicate chunks caused by overlap.
-                if text == self.last_text:
-                    continue
+            msg = String()
+            msg.data = text
+            self.pub.publish(msg)
 
-                self.last_text = text
+            if not self.debug:
+                self.get_logger().info("Heard: %s" % text)
 
-                msg = String()
-                msg.data = text
-                self.pub.publish(msg)
-
-                if not self.debug:
-                    self.get_logger().info("Heard: %s" % text)
-
-            except Exception as exc:
-                self.get_logger().error("Whisper failed: %s" % exc)
+        except Exception as exc:
+            self.get_logger().error("Transcription failed: %s" % exc)
 
     def destroy_node(self):
         self.running = False
-
         if hasattr(self, "worker") and self.worker.is_alive():
             self.worker.join(timeout=1.0)
-
         super().destroy_node()
 
 
