@@ -190,6 +190,8 @@ class Go2WebRtcCameraClient:
         self.data_channel.on("message", self.on_data_channel_message)
         self.pc.on("track", self.on_track)
         self.pc.on("connectionstatechange", self.on_connection_state_change)
+        self.pc.on("iceconnectionstatechange", self.on_ice_connection_state_change)
+        self.pc.on("signalingstatechange", self.on_signaling_state_change)
         self.pc.addTransceiver("video", direction="recvonly")
 
         await self.connect()
@@ -199,7 +201,15 @@ class Go2WebRtcCameraClient:
     def on_connection_state_change(self):
         self.log.info("WebRTC connection state: %s" % self.pc.connectionState)
 
+    def on_ice_connection_state_change(self):
+        self.log.info("WebRTC ICE state: %s" % self.pc.iceConnectionState)
+
+    def on_signaling_state_change(self):
+        self.log.info("WebRTC signaling state: %s" % self.pc.signalingState)
+
     def on_data_channel_open(self):
+        if self.data_channel.readyState != "open":
+            self.data_channel._setReadyState("open")
         self.log.info("WebRTC data channel open")
 
     def on_data_channel_message(self, message):
@@ -231,17 +241,36 @@ class Go2WebRtcCameraClient:
     def validate_robot_conn(self, message):
         data = message.get("data", "")
         if data == "Validation Ok.":
-            self.publish("", "on", "vid")
             self.validation_result = "SUCCESS"
-            self.log.info("Robot WebRTC validation successful; requested video")
+            self.log.info("Robot WebRTC validation successful")
+            self.request_video()
+            self.disable_traffic_saving(True)
             return
 
+        self.log.info("Received WebRTC validation challenge")
         encrypted_key = self.encrypt_validation_key(data)
         self.publish("", encrypted_key, "validation")
+
+    def request_video(self):
+        self.publish("", "on", "vid")
+        self.log.info("Requested WebRTC video")
+
+    def disable_traffic_saving(self, enabled: bool):
+        data = {
+            "req_type": "disable_traffic_saving",
+            "instruction": "on" if enabled else "off",
+        }
+        self.publish("", data, "rtc_inner_req")
+        self.log.info("Requested disable_traffic_saving=%s" % enabled)
 
     def publish(self, topic, data, msg_type="msg"):
         if self.data_channel is None:
             return
+        if self.data_channel.readyState != "open":
+            self.log.warn(
+                "WebRTC data channel is %s, sending anyway" % self.data_channel.readyState
+            )
+            self.data_channel._setReadyState("open")
 
         payload = {"type": msg_type, "topic": topic, "data": data}
         self.data_channel.send(json.dumps(payload))
