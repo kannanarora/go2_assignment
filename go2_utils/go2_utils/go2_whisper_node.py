@@ -253,7 +253,11 @@ class Go2WhisperNode(Node):
 
                 clean_rms = audioop.rms(audio16_i16.tobytes(), 2)
 
-                if raw_rms < self.min_rms and clean_rms < self.min_rms:
+                # After DeepFilterNet, non-speech chunks collapse toward
+                # silence, so the denoised RMS is a much better speech gate
+                # than the raw signal (which always reads high from lidar).
+                gate_rms = clean_rms if self.denoiser is not None else raw_rms
+                if gate_rms < self.min_rms:
                     continue
 
                 result = self.model.transcribe(
@@ -271,7 +275,10 @@ class Go2WhisperNode(Node):
 
                 text = result.get("text", "").strip()
 
-                if len(text) < self.min_text_length:
+                # Reject hallucinated noise output like "!!!!!" by requiring
+                # a minimum number of actual letters, not just characters.
+                letters = sum(c.isalpha() for c in text)
+                if letters < self.min_text_length:
                     continue
 
                 # Avoid immediate duplicate chunks caused by overlap.
@@ -284,7 +291,10 @@ class Go2WhisperNode(Node):
                 msg.data = text
                 self.pub.publish(msg)
 
-                self.get_logger().info("Heard: %s" % text)
+                self.get_logger().info(
+                    "Heard: %s  (raw_rms=%d clean_rms=%d)"
+                    % (text, raw_rms, clean_rms)
+                )
 
             except Exception as exc:
                 self.get_logger().error("Whisper failed: %s" % exc)
