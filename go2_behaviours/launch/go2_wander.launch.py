@@ -36,6 +36,13 @@ def generate_launch_description():
             ),
             Node(
                 package="go2_behaviours",
+                executable="cmd_vel_bridge_node",
+                name="cmd_vel_bridge_node",
+                output="screen",
+                parameters=[params_file],
+            ),
+            Node(
+                package="go2_behaviours",
                 executable="wander_node",
                 name="wander_node",
                 output="screen",

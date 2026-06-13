@@ -5,6 +5,7 @@ import random
 import time
 
 import rclpy
+from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -24,6 +25,7 @@ class WanderNode(Node):
         self.trigger_topic = self.declare_parameter(
             "trigger_topic", "/trigger_behaviour"
         ).value
+        self.cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
 
         self.forward_speed_mps = float(
             self.declare_parameter("forward_speed_mps", 0.22).value
@@ -103,6 +105,7 @@ class WanderNode(Node):
         )
 
         self.cmd_pub = self.create_publisher(String, self.trigger_topic, 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
         self.scan_sub = self.create_subscription(
             LaserScan,
             self.scan_topic,
@@ -117,9 +120,11 @@ class WanderNode(Node):
             self.publish_command(self.startup_command, force=True)
 
         self.get_logger().info(
-            "WanderNode publishing to %s and avoiding obstacles from %s "
+            "WanderNode publishing velocity to %s, commands to %s, "
+            "and avoiding obstacles from %s "
             "(avoid<%.2fm, clear>%.2fm)"
             % (
+                self.cmd_vel_topic,
                 self.trigger_topic,
                 self.scan_topic,
                 self.avoid_threshold_m,
@@ -264,7 +269,11 @@ class WanderNode(Node):
         return max(0, min(idx, len(scan.ranges) - 1))
 
     def publish_move(self, vx: float, vyaw: float):
-        self.publish_command("move %.3f 0.000 %.3f" % (vx, vyaw), force=True)
+        msg = Twist()
+        msg.linear.x = float(vx)
+        msg.linear.y = 0.0
+        msg.angular.z = float(vyaw)
+        self.cmd_vel_pub.publish(msg)
 
     def publish_command(self, command: str, force: bool = False):
         if not force and command == self._last_command:
@@ -291,6 +300,7 @@ class WanderNode(Node):
         )
 
     def destroy_node(self):
+        self.publish_move(0.0, 0.0)
         self.publish_command("stop", force=True)
         super().destroy_node()
 
