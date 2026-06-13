@@ -13,6 +13,7 @@ def generate_launch_description():
     min_rms = LaunchConfiguration("min_rms")
     chunk_seconds = LaunchConfiguration("chunk_seconds")
     fp16 = LaunchConfiguration("fp16")
+    device = LaunchConfiguration("device")
 
     return LaunchDescription([
         DeclareLaunchArgument("audio_topic", default_value="/audiosender"),
@@ -23,6 +24,7 @@ def generate_launch_description():
         DeclareLaunchArgument("min_rms", default_value="500"),
         DeclareLaunchArgument("chunk_seconds", default_value="1.0"),
         DeclareLaunchArgument("fp16", default_value="false"),
+        DeclareLaunchArgument("device", default_value=""),
         Node(
             package="go2_utils",
             executable="go2_whisper_node",
@@ -37,6 +39,7 @@ def generate_launch_description():
                 "min_rms": min_rms,
                 "chunk_seconds": chunk_seconds,
                 "fp16": fp16,
+                "device": device,
             }],
         ),
     ])

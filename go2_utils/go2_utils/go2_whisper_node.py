@@ -69,6 +69,7 @@ class Go2WhisperNode(Node):
 
         # Jetson CUDA works, but fp16 can produce NaNs on this setup.
         self.declare_parameter("fp16", False)
+        self.declare_parameter("device", "")  # "" = auto, or "cpu" / "cuda"
 
         # DeepFilterNet noise reduction.
         self.declare_parameter("enable_denoise", True)
@@ -100,6 +101,7 @@ class Go2WhisperNode(Node):
         self.min_text_length = int(self.get_parameter("min_text_length").value)
 
         self.fp16 = bool(self.get_parameter("fp16").value)
+        self.device_param = self.get_parameter("device").value
 
         self.enable_denoise = bool(self.get_parameter("enable_denoise").value)
         self.debug = bool(self.get_parameter("debug").value)
@@ -141,7 +143,7 @@ class Go2WhisperNode(Node):
             )
             self.overlap_bytes = int(0.25 * self.chunk_bytes)
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = self.device_param or ("cuda" if torch.cuda.is_available() else "cpu")
 
         if device == "cpu" and self.fp16:
             self.get_logger().warn(
