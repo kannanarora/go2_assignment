@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import math
+import os
 import time
 
+import numpy as np
 import rclpy
 from go2_interfaces.msg import PersonTrack
 from rclpy.node import Node
@@ -11,18 +13,18 @@ from rclpy.qos import (
     HistoryPolicy,
     QoSProfile,
     ReliabilityPolicy,
+    qos_profile_sensor_data,
 )
-from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import Image, LaserScan
 from std_msgs.msg import Bool
-from yolo_msgs.msg import DetectionArray
 
 
 class PersonTrackerNode(Node):
     def __init__(self):
         super().__init__("person_tracker_node")
 
-        self.yolo_topic = self.declare_parameter(
-            "yolo_topic", "/yolo/tracking"
+        self.image_topic = self.declare_parameter(
+            "image_topic", "/camera/image_raw"
         ).value
         self.scan_topic = self.declare_parameter("scan_topic", "/front_scan").value
         self.person_track_topic = self.declare_parameter(
@@ -32,9 +34,15 @@ class PersonTrackerNode(Node):
             "person_nearby_topic", "/person_nearby"
         ).value
 
-        self.image_width_px = float(
-            self.declare_parameter("image_width_px", 640.0).value
+        self.model_path = self.declare_parameter("model_path", "").value
+        self.input_width = int(self.declare_parameter("input_width", 640).value)
+        self.input_height = int(self.declare_parameter("input_height", 640).value)
+        self.min_confidence = float(self.declare_parameter("min_confidence", 0.35).value)
+        self.nms_threshold = float(self.declare_parameter("nms_threshold", 0.45).value)
+        self.process_every_n_frames = int(
+            self.declare_parameter("process_every_n_frames", 2).value
         )
+
         self.camera_horizontal_fov_deg = float(
             self.declare_parameter("camera_horizontal_fov_deg", 90.0).value
         )
@@ -50,11 +58,22 @@ class PersonTrackerNode(Node):
         self.no_detection_publish_hz = float(
             self.declare_parameter("no_detection_publish_hz", 2.0).value
         )
-        self.min_confidence = float(self.declare_parameter("min_confidence", 0.35).value)
 
+        try:
+            import cv2
+        except ImportError as exc:
+            raise RuntimeError(
+                "person_tracker_node requires OpenCV. Install python3-opencv."
+            ) from exc
+
+        self.cv2 = cv2
+        self.net = None
         self.latest_scan = None
         self.last_detection_time = 0.0
         self.last_visible = False
+        self.frame_count = 0
+
+        self.load_model()
 
         scan_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -69,11 +88,11 @@ class PersonTrackerNode(Node):
             self.scan_callback,
             scan_qos,
         )
-        self.yolo_sub = self.create_subscription(
-            DetectionArray,
-            self.yolo_topic,
-            self.yolo_callback,
-            10,
+        self.image_sub = self.create_subscription(
+            Image,
+            self.image_topic,
+            self.image_callback,
+            qos_profile_sensor_data,
         )
         self.track_pub = self.create_publisher(PersonTrack, self.person_track_topic, 10)
         self.nearby_pub = self.create_publisher(Bool, self.person_nearby_topic, 10)
@@ -86,27 +105,51 @@ class PersonTrackerNode(Node):
 
         self.get_logger().info(
             "PersonTrackerNode listening to %s and %s, publishing %s"
-            % (self.yolo_topic, self.scan_topic, self.person_track_topic)
+            % (self.image_topic, self.scan_topic, self.person_track_topic)
         )
+
+    def load_model(self):
+        if not self.model_path:
+            self.get_logger().warn(
+                "No model_path set. person_tracker_node will publish no detections "
+                "until configured with a YOLO ONNX model."
+            )
+            return
+
+        if not os.path.exists(self.model_path):
+            self.get_logger().error("YOLO ONNX model not found: %s" % self.model_path)
+            return
+
+        self.net = self.cv2.dnn.readNetFromONNX(self.model_path)
+        self.get_logger().info("Loaded YOLO ONNX model: %s" % self.model_path)
 
     def scan_callback(self, msg: LaserScan):
         self.latest_scan = msg
 
-    def yolo_callback(self, msg: DetectionArray):
-        best = self.best_person_detection(msg.detections)
+    def image_callback(self, msg: Image):
+        self.frame_count += 1
+        if self.process_every_n_frames > 1:
+            if self.frame_count % self.process_every_n_frames != 0:
+                return
 
-        if best is None:
+        if self.net is None:
             self.publish_not_visible(msg.header)
             return
 
-        confidence = float(best.score)
-        bbox = best.bbox
-        image_x = float(bbox.center.position.x)
-        image_y = float(bbox.center.position.y)
-        bbox_width = float(bbox.size.x)
-        bbox_height = float(bbox.size.y)
+        image = self.image_msg_to_bgr(msg)
+        if image is None:
+            return
 
-        bearing = self.image_x_to_bearing(image_x)
+        detection = self.detect_best_person(image)
+        if detection is None:
+            self.publish_not_visible(msg.header)
+            return
+
+        x, y, w, h, confidence = detection
+        image_x = x + w * 0.5
+        image_y = y + h * 0.5
+
+        bearing = self.image_x_to_bearing(image_x, image.shape[1])
         distance = self.scan_distance_at_bearing(bearing)
         distance_valid = math.isfinite(distance)
         nearby = distance_valid and distance <= self.nearby_threshold_m
@@ -114,16 +157,16 @@ class PersonTrackerNode(Node):
         out = PersonTrack()
         out.header = msg.header
         out.visible = True
-        out.track_id = str(best.id)
-        out.confidence = confidence
+        out.track_id = "person"
+        out.confidence = float(confidence)
         out.bearing_rad = float(bearing)
         out.distance_valid = bool(distance_valid)
         out.distance_m = float(distance) if distance_valid else 0.0
         out.nearby = bool(nearby)
-        out.image_x = image_x
-        out.image_y = image_y
-        out.bbox_width = bbox_width
-        out.bbox_height = bbox_height
+        out.image_x = float(image_x)
+        out.image_y = float(image_y)
+        out.bbox_width = float(w)
+        out.bbox_height = float(h)
 
         self.track_pub.publish(out)
         self.publish_nearby(nearby)
@@ -131,31 +174,134 @@ class PersonTrackerNode(Node):
         self.last_detection_time = time.monotonic()
         self.last_visible = True
 
-    def best_person_detection(self, detections):
-        best = None
-        best_score = -1.0
+    def image_msg_to_bgr(self, msg: Image):
+        if msg.encoding not in ("bgr8", "rgb8"):
+            self.get_logger().warn("Unsupported image encoding: %s" % msg.encoding)
+            return None
 
-        for detection in detections:
-            class_name = str(detection.class_name).lower()
-            is_person = class_name == "person" or int(detection.class_id) == 0
-            score = float(detection.score)
+        channels = 3
+        image = np.frombuffer(msg.data, dtype=np.uint8)
+        expected = int(msg.height * msg.width * channels)
+        if image.size < expected:
+            self.get_logger().warn("Image data shorter than expected")
+            return None
 
-            if not is_person or score < self.min_confidence:
+        image = image[:expected].reshape((msg.height, msg.width, channels))
+        if msg.encoding == "rgb8":
+            image = self.cv2.cvtColor(image, self.cv2.COLOR_RGB2BGR)
+
+        return image
+
+    def detect_best_person(self, image):
+        blob, scale, pad_x, pad_y = self.make_blob(image)
+        self.net.setInput(blob)
+        output = self.net.forward()
+
+        boxes, scores = self.parse_yolo_output(output, image.shape, scale, pad_x, pad_y)
+        if not boxes:
+            return None
+
+        indices = self.cv2.dnn.NMSBoxes(
+            boxes,
+            scores,
+            self.min_confidence,
+            self.nms_threshold,
+        )
+
+        if len(indices) == 0:
+            return None
+
+        best_index = int(np.array(indices).flatten()[0])
+        x, y, w, h = boxes[best_index]
+        return x, y, w, h, scores[best_index]
+
+    def make_blob(self, image):
+        height, width = image.shape[:2]
+        scale = min(self.input_width / width, self.input_height / height)
+        resized_w = int(round(width * scale))
+        resized_h = int(round(height * scale))
+
+        resized = self.cv2.resize(image, (resized_w, resized_h))
+        canvas = np.full(
+            (self.input_height, self.input_width, 3),
+            114,
+            dtype=np.uint8,
+        )
+
+        pad_x = (self.input_width - resized_w) // 2
+        pad_y = (self.input_height - resized_h) // 2
+        canvas[pad_y : pad_y + resized_h, pad_x : pad_x + resized_w] = resized
+
+        blob = self.cv2.dnn.blobFromImage(
+            canvas,
+            1.0 / 255.0,
+            (self.input_width, self.input_height),
+            swapRB=True,
+            crop=False,
+        )
+        return blob, scale, pad_x, pad_y
+
+    def parse_yolo_output(self, output, image_shape, scale, pad_x, pad_y):
+        output = np.squeeze(output)
+
+        if output.ndim != 2:
+            return [], []
+
+        if output.shape[0] < output.shape[1]:
+            output = output.T
+
+        boxes = []
+        scores = []
+        image_h, image_w = image_shape[:2]
+
+        for row in output:
+            parsed = self.parse_yolo_row(row)
+            if parsed is None:
                 continue
 
-            if score > best_score:
-                best = detection
-                best_score = score
+            cx, cy, w, h, score = parsed
+            x = (cx - w * 0.5 - pad_x) / scale
+            y = (cy - h * 0.5 - pad_y) / scale
+            w = w / scale
+            h = h / scale
 
-        return best
+            x = max(0.0, min(float(image_w - 1), x))
+            y = max(0.0, min(float(image_h - 1), y))
+            w = max(1.0, min(float(image_w) - x, w))
+            h = max(1.0, min(float(image_h) - y, h))
 
-    def image_x_to_bearing(self, image_x: float) -> float:
-        half_width = max(self.image_width_px * 0.5, 1.0)
+            boxes.append([int(x), int(y), int(w), int(h)])
+            scores.append(float(score))
+
+        return boxes, scores
+
+    def parse_yolo_row(self, row):
+        if len(row) < 6:
+            return None
+
+        cx, cy, w, h = row[0:4]
+
+        # YOLOv5-style output: x, y, w, h, objectness, class scores...
+        if len(row) >= 85:
+            objectness = float(row[4])
+            person_score = float(row[5])
+            score = objectness * person_score
+        else:
+            # YOLOv8/YOLOv11-style output: x, y, w, h, class scores...
+            person_score = float(row[4])
+            score = person_score
+
+        if score < self.min_confidence:
+            return None
+
+        return float(cx), float(cy), float(w), float(h), float(score)
+
+    def image_x_to_bearing(self, image_x: float, image_width_px: int) -> float:
+        half_width = max(image_width_px * 0.5, 1.0)
         centered_x = image_x - half_width
         normalized = max(-1.0, min(1.0, centered_x / half_width))
         half_fov_rad = math.radians(self.camera_horizontal_fov_deg) * 0.5
 
-        # Image coordinates increase to the right, while robot yaw is positive left.
         return -normalized * half_fov_rad
 
     def scan_distance_at_bearing(self, bearing_rad: float) -> float:
