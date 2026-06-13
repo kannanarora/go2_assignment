@@ -64,5 +64,5 @@ wander_node:
     stop_duration_s: 0.4
     scan_timeout_s: 1.5
     command_rate_hz: 10.0
-    log_rate_hz: 1.0
+    log_rate_hz: 0.0
     startup_command: balance_stand
