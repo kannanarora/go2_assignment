@@ -40,7 +40,7 @@ class PersonTrackerNode(Node):
         self.model_path = self.declare_parameter("model_path", "").value
         self.input_width = int(self.declare_parameter("input_width", 640).value)
         self.input_height = int(self.declare_parameter("input_height", 640).value)
-        self.min_confidence = float(self.declare_parameter("min_confidence", 0.20).value)
+        self.min_confidence = float(self.declare_parameter("min_confidence", 0.10).value)
         self.nms_threshold = float(self.declare_parameter("nms_threshold", 0.45).value)
         self.process_every_n_frames = int(
             self.declare_parameter("process_every_n_frames", 1).value

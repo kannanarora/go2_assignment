@@ -1,6 +1,6 @@
 person_tracker_node:
   ros__parameters:
-    image_topic: /camera/image_raw
+    image_topic: /camera/color/image
     scan_topic: /front_scan
     person_track_topic: /person_track
     person_nearby_topic: /person_nearby
@@ -8,7 +8,7 @@ person_tracker_node:
     model_path: /home/unitree/ros2_ws/models/yolov5s.onnx
     input_width: 640
     input_height: 640
-    min_confidence: 0.20
+    min_confidence: 0.10
     nms_threshold: 0.45
     process_every_n_frames: 1
     publish_debug_image: true

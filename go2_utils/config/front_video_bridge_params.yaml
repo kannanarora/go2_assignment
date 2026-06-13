@@ -1,8 +1,8 @@
 front_video_bridge_node:
   ros__parameters:
     input_topic: /frontvideostream
-    output_topic: /camera/image_raw
-    compressed_output_topic: /camera/image_raw/compressed
+    output_topic: /camera/color/image
+    compressed_output_topic: /camera/color/image/compressed
     frame_id: front_camera
     stream: video720p
     publish_raw: true
