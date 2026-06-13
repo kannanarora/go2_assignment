@@ -23,9 +23,15 @@ class GStreamerCameraNode(Node):
         self.interface = self.declare_parameter("interface", "eth0").value
         self.width = int(self.declare_parameter("width", 1280).value)
         self.height = int(self.declare_parameter("height", 720).value)
+        self.output_width = int(self.declare_parameter("output_width", 640).value)
+        self.output_height = int(self.declare_parameter("output_height", 360).value)
         self.publish_raw = bool(self.declare_parameter("publish_raw", True).value)
         self.publish_compressed = bool(
             self.declare_parameter("publish_compressed", True).value
+        )
+        self.raw_max_fps = float(self.declare_parameter("raw_max_fps", 10.0).value)
+        self.compressed_max_fps = float(
+            self.declare_parameter("compressed_max_fps", 3.0).value
         )
         self.jpeg_quality = int(self.declare_parameter("jpeg_quality", 70).value)
 
@@ -51,6 +57,8 @@ class GStreamerCameraNode(Node):
         self.pipeline = None
         self.appsink = None
         self.logged_first_frame = False
+        self.last_raw_publish_time = 0.0
+        self.last_compressed_publish_time = 0.0
 
         self.image_pub = self.create_publisher(Image, self.output_topic, 10)
         self.compressed_pub = self.create_publisher(
@@ -122,15 +130,44 @@ class GStreamerCameraNode(Node):
             )
 
         try:
-            frame_bytes = bytes(map_info.data)
+            now = self.get_clock().now()
             stamp = self.get_clock().now().to_msg()
+            wants_raw = (
+                self.publish_raw
+                and self.image_pub.get_subscription_count() > 0
+                and self.should_publish(
+                    now.nanoseconds * 1e-9,
+                    self.last_raw_publish_time,
+                    self.raw_max_fps,
+                )
+            )
+            wants_compressed = (
+                self.publish_compressed
+                and self.compressed_pub.get_subscription_count() > 0
+                and self.should_publish(
+                    now.nanoseconds * 1e-9,
+                    self.last_compressed_publish_time,
+                    self.compressed_max_fps,
+                )
+            )
 
-            if self.publish_raw:
+            if not wants_raw and not wants_compressed:
+                return self.Gst.FlowReturn.OK
+
+            frame_bytes = bytes(map_info.data)
+            frame_bytes, width, height = self.resize_if_needed(
+                frame_bytes,
+                width,
+                height,
+            )
+
+            if wants_raw:
                 self.image_pub.publish(
                     self.bgr_bytes_to_image_msg(frame_bytes, width, height, stamp)
                 )
+                self.last_raw_publish_time = now.nanoseconds * 1e-9
 
-            if self.publish_compressed:
+            if wants_compressed:
                 msg = self.bgr_bytes_to_compressed_msg(
                     frame_bytes,
                     width,
@@ -139,10 +176,36 @@ class GStreamerCameraNode(Node):
                 )
                 if msg is not None:
                     self.compressed_pub.publish(msg)
+                    self.last_compressed_publish_time = now.nanoseconds * 1e-9
         finally:
             buffer.unmap(map_info)
 
         return self.Gst.FlowReturn.OK
+
+    def should_publish(self, now_s, last_publish_s, max_fps):
+        if max_fps <= 0.0:
+            return True
+        return now_s - last_publish_s >= 1.0 / max_fps
+
+    def resize_if_needed(self, frame_bytes, width, height):
+        if self.output_width <= 0 or self.output_height <= 0:
+            return frame_bytes, width, height
+
+        if width == self.output_width and height == self.output_height:
+            return frame_bytes, width, height
+
+        if self.cv2 is None:
+            return frame_bytes, width, height
+
+        import numpy as np
+
+        bgr = np.frombuffer(frame_bytes, dtype=np.uint8).reshape((height, width, 3))
+        resized = self.cv2.resize(
+            bgr,
+            (self.output_width, self.output_height),
+            interpolation=self.cv2.INTER_AREA,
+        )
+        return resized.tobytes(), self.output_width, self.output_height
 
     def bgr_bytes_to_image_msg(self, frame_bytes, width, height, stamp):
         msg = Image()
