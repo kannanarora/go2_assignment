@@ -1,0 +1,7 @@
+front_video_bridge_node:
+  ros__parameters:
+    input_topic: /frontvideostream
+    output_topic: /camera/image_raw
+    frame_id: front_camera
+    stream: video720p
+    log_decode_errors: false
