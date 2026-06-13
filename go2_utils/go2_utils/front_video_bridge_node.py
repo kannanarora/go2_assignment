@@ -33,6 +33,9 @@ class FrontVideoBridgeNode(Node):
             self.declare_parameter("compressed_max_fps", 5.0).value
         )
         self.jpeg_quality = int(self.declare_parameter("jpeg_quality", 70).value)
+        self.decode_buffer_max_bytes = int(
+            self.declare_parameter("decode_buffer_max_bytes", 1048576).value
+        )
         self.log_decode_errors = bool(
             self.declare_parameter("log_decode_errors", False).value
         )
@@ -50,6 +53,7 @@ class FrontVideoBridgeNode(Node):
         self._last_raw_publish_time = 0.0
         self._last_compressed_publish_time = 0.0
         self._warned_no_cv2 = False
+        self._decode_buffer = bytearray()
 
         self._cv2 = None
         if self.publish_compressed:
@@ -94,16 +98,17 @@ class FrontVideoBridgeNode(Node):
         if not encoded:
             return
 
-        try:
-            packet = self._av.Packet(encoded)
-            frames = self.decoder.decode(packet)
-        except Exception as exc:
-            if self.log_decode_errors:
-                self.get_logger().warn("H.264 decode failed: %s" % exc)
-            return
+        for packet_bytes in self.extract_complete_h264_packets(encoded):
+            try:
+                packet = self._av.Packet(packet_bytes)
+                frames = self.decoder.decode(packet)
+            except Exception as exc:
+                if self.log_decode_errors:
+                    self.get_logger().warn("H.264 decode failed: %s" % exc)
+                continue
 
-        for frame in frames:
-            self.publish_frame(frame)
+            for frame in frames:
+                self.publish_frame(frame)
 
     def publish_frame(self, frame):
         bgr = frame.to_ndarray(format="bgr24")
@@ -133,6 +138,54 @@ class FrontVideoBridgeNode(Node):
             return True
 
         return now - last_publish_time >= 1.0 / max_fps
+
+    def extract_complete_h264_packets(self, encoded: bytes):
+        self._decode_buffer.extend(encoded)
+
+        if len(self._decode_buffer) > self.decode_buffer_max_bytes:
+            start = self.find_last_start_code(self._decode_buffer)
+            if start > 0:
+                del self._decode_buffer[:start]
+            else:
+                self._decode_buffer.clear()
+                return []
+
+        start_codes = self.find_start_codes(self._decode_buffer)
+        if len(start_codes) < 2:
+            return []
+
+        packets = []
+        for i in range(len(start_codes) - 1):
+            start = start_codes[i]
+            end = start_codes[i + 1]
+            if end > start:
+                packets.append(bytes(self._decode_buffer[start:end]))
+
+        del self._decode_buffer[: start_codes[-1]]
+        return packets
+
+    def find_start_codes(self, data):
+        starts = []
+        i = 0
+        size = len(data)
+
+        while i < size - 3:
+            if data[i : i + 4] == b"\x00\x00\x00\x01":
+                starts.append(i)
+                i += 4
+            elif data[i : i + 3] == b"\x00\x00\x01":
+                starts.append(i)
+                i += 3
+            else:
+                i += 1
+
+        return starts
+
+    def find_last_start_code(self, data):
+        starts = self.find_start_codes(data)
+        if not starts:
+            return -1
+        return starts[-1]
 
     def extract_stream_bytes(self, serialized_msg: bytes) -> bytes:
         streams = self.parse_front_video_cdr(serialized_msg)
