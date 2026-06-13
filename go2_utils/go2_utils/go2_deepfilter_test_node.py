@@ -29,12 +29,19 @@ class Go2DeepFilterTestNode(Node):
         self.declare_parameter("raw_output_path", "/tmp/go2_deepfilter_raw.wav")
         self.declare_parameter("record_seconds", 10.0)
         self.declare_parameter("start_delay", 3.0)
+        self.declare_parameter("channel_mode", "mono")  # mono, left, right
+        self.declare_parameter("normalize", False)
+        self.declare_parameter("atten_lim_db", 0.0)  # 0 means no limit
 
         self.audio_topic = self.get_parameter("audio_topic").value
         self.output_path = self.get_parameter("output_path").value
         self.raw_output_path = self.get_parameter("raw_output_path").value
         self.record_seconds = float(self.get_parameter("record_seconds").value)
         self.start_delay = float(self.get_parameter("start_delay").value)
+        self.channel_mode = self.get_parameter("channel_mode").value
+        self.normalize = bool(self.get_parameter("normalize").value)
+        atten = float(self.get_parameter("atten_lim_db").value)
+        self.atten_lim_db = atten if atten > 0.0 else None
 
         self.opus_rate = 48000
         self.opus_channels = 2
@@ -92,7 +99,12 @@ class Go2DeepFilterTestNode(Node):
             self.get_logger().warn("Opus decode failed: %s" % exc)
             return
 
-        pcm48_mono = audioop.tomono(pcm48_stereo, 2, 0.5, 0.5)
+        if self.channel_mode == "left":
+            pcm48_mono = audioop.tomono(pcm48_stereo, 2, 1.0, 0.0)
+        elif self.channel_mode == "right":
+            pcm48_mono = audioop.tomono(pcm48_stereo, 2, 0.0, 1.0)
+        else:
+            pcm48_mono = audioop.tomono(pcm48_stereo, 2, 0.5, 0.5)
         mono = np.frombuffer(pcm48_mono, dtype=np.int16)
 
         self.frames.append(mono)
@@ -114,10 +126,22 @@ class Go2DeepFilterTestNode(Node):
         self.save_wav(self.raw_output_path, raw)
         self.get_logger().info("Saved raw recording: %s" % self.raw_output_path)
 
-        self.get_logger().info("Running DeepFilterNet on the whole clip")
+        self.get_logger().info(
+            "Running DeepFilterNet on the whole clip (channel_mode=%s "
+            "normalize=%s atten_lim_db=%s)"
+            % (self.channel_mode, self.normalize, self.atten_lim_db)
+        )
         audio = torch.from_numpy(raw.astype(np.float32) / 32768.0).unsqueeze(0)
-        cleaned = self._enhance(self.model, self.df_state, audio)
+        cleaned = self._enhance(
+            self.model, self.df_state, audio, atten_lim_db=self.atten_lim_db
+        )
         cleaned = cleaned.squeeze(0).cpu().numpy()
+
+        if self.normalize:
+            peak = float(np.max(np.abs(cleaned)))
+            if peak > 0.0:
+                cleaned = cleaned * (0.95 / peak)
+
         cleaned_i16 = np.clip(cleaned * 32768.0, -32768, 32767).astype(np.int16)
 
         self.save_wav(self.output_path, cleaned_i16)
