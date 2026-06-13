@@ -34,10 +34,10 @@ class AudioHubPlayerNode(Node):
         super().__init__('audiohub_player_node')
 
         default_wav = os.path.join(
-            get_package_share_directory('go2_utils'), 'sounds', 'go2_bark.wav'
+            get_package_share_directory('go2_utils'), 'sounds', 'bark.wav'
         )
         self.declare_parameter('wav_file',  default_wav)
-        self.declare_parameter('file_name', 'go2_bark')
+        self.declare_parameter('file_name', 'bark')
 
         self._wav_file  = self.get_parameter('wav_file').value
         self._file_name = self.get_parameter('file_name').value

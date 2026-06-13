@@ -31,7 +31,7 @@ from unitree_go.msg import AudioData
 
 class Go2WhisperNode(Node):
     def __init__(self):
-        super().__init__("go2_whisper_node")
+        super().__init__("whisper_node")
 
         self.declare_parameter("audio_topic", "/audiosender")
         self.declare_parameter("text_topic", "/go2/whisper/text")

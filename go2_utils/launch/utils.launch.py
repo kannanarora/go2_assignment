@@ -7,7 +7,7 @@ from ament_index_python.packages import get_package_share_directory
 def generate_launch_description():
 
     pkg_share = get_package_share_directory("go2_utils")
-    urdf_path = os.path.join(pkg_share, "urdf", "go2_description.urdf")
+    urdf_path = os.path.join(pkg_share, "urdf", "description.urdf")
 
     with open(urdf_path, "r") as f:
         robot_description = f.read()

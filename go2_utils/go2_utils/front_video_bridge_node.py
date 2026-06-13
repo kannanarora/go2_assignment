@@ -40,6 +40,7 @@ class FrontVideoBridgeNode(Node):
             self.input_topic,
             self.video_callback,
             qos_profile_sensor_data,
+            raw=True,
         )
 
         self.get_logger().info(
@@ -47,8 +48,8 @@ class FrontVideoBridgeNode(Node):
             % (self.input_topic, self.stream, self.output_topic)
         )
 
-    def video_callback(self, msg: Go2FrontVideoData):
-        encoded = self.extract_stream_bytes(msg)
+    def video_callback(self, serialized_msg: bytes):
+        encoded = self.extract_stream_bytes(serialized_msg)
         encoded = self.strip_to_h264_start_code(encoded)
 
         if not encoded:
@@ -66,15 +67,68 @@ class FrontVideoBridgeNode(Node):
             image_msg = self.frame_to_image_msg(frame)
             self.image_pub.publish(image_msg)
 
-    def extract_stream_bytes(self, msg: Go2FrontVideoData) -> bytes:
-        if self.stream == "video360p":
-            data = msg.video360p
-        elif self.stream == "video180p":
-            data = msg.video180p
-        else:
-            data = msg.video720p
+    def extract_stream_bytes(self, serialized_msg: bytes) -> bytes:
+        streams = self.parse_front_video_cdr(serialized_msg)
 
-        return bytes(data)
+        if self.stream == "video360p":
+            data = streams["video360p"]
+        elif self.stream == "video180p":
+            data = streams["video180p"]
+        else:
+            data = streams["video720p"]
+
+        if data:
+            return data
+
+        return self.find_h264_payload(serialized_msg)
+
+    def parse_front_video_cdr(self, data: bytes) -> dict:
+        streams = {
+            "video720p": b"",
+            "video360p": b"",
+            "video180p": b"",
+        }
+
+        try:
+            offset = 4
+            little_endian = data[1] == 1
+            offset = self.align(offset, 8)
+            offset += 8
+
+            for name in ("video720p", "video360p", "video180p"):
+                offset = self.align(offset, 4)
+                length = self.read_uint32(data, offset, little_endian)
+                offset += 4
+
+                if length < 0 or offset + length > len(data):
+                    return streams
+
+                streams[name] = data[offset : offset + length]
+                offset += length
+
+            return streams
+        except Exception:
+            return streams
+
+    def find_h264_payload(self, data: bytes) -> bytes:
+        start = data.find(b"\x00\x00\x00\x01")
+        if start < 0:
+            start = data.find(b"\x00\x00\x01")
+
+        if start < 0:
+            return b""
+
+        return data[start:]
+
+    def align(self, offset: int, alignment: int) -> int:
+        remainder = offset % alignment
+        if remainder == 0:
+            return offset
+        return offset + alignment - remainder
+
+    def read_uint32(self, data: bytes, offset: int, little_endian: bool) -> int:
+        byteorder = "little" if little_endian else "big"
+        return int.from_bytes(data[offset : offset + 4], byteorder=byteorder)
 
     def strip_to_h264_start_code(self, data: bytes) -> bytes:
         if not data:

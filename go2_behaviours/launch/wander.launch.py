@@ -24,7 +24,7 @@ def generate_launch_description():
     utils_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
-                [FindPackageShare("go2_utils"), "launch", "go2_utils.launch.py"]
+                [FindPackageShare("go2_utils"), "launch", "utils.launch.py"]
             )
         )
     )
