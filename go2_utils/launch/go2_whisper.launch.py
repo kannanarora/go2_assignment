@@ -9,6 +9,8 @@ def generate_launch_description():
     text_topic = LaunchConfiguration("text_topic")
     model_name = LaunchConfiguration("model_name")
     enable_denoise = LaunchConfiguration("enable_denoise")
+    atten_lim_db = LaunchConfiguration("atten_lim_db")
+    output_gain = LaunchConfiguration("output_gain")
     min_rms = LaunchConfiguration("min_rms")
     chunk_seconds = LaunchConfiguration("chunk_seconds")
     fp16 = LaunchConfiguration("fp16")
@@ -18,6 +20,8 @@ def generate_launch_description():
         DeclareLaunchArgument("text_topic", default_value="/go2/whisper/text"),
         DeclareLaunchArgument("model_name", default_value="base.en"),
         DeclareLaunchArgument("enable_denoise", default_value="true"),
+        DeclareLaunchArgument("atten_lim_db", default_value="12.0"),
+        DeclareLaunchArgument("output_gain", default_value="1.0"),
         DeclareLaunchArgument("min_rms", default_value="500"),
         DeclareLaunchArgument("chunk_seconds", default_value="1.0"),
         DeclareLaunchArgument("fp16", default_value="false"),
@@ -31,6 +35,8 @@ def generate_launch_description():
                 "text_topic": text_topic,
                 "model_name": model_name,
                 "enable_denoise": enable_denoise,
+                "atten_lim_db": atten_lim_db,
+                "output_gain": output_gain,
                 "min_rms": min_rms,
                 "chunk_seconds": chunk_seconds,
                 "fp16": fp16,

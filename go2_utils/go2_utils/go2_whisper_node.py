@@ -34,16 +34,19 @@ class DeepFilterDenoiser:
     """DeepFilterNet wrapper. Cleans mono 48 kHz audio in real time.
     """
 
-    def __init__(self):
+    def __init__(self, atten_lim_db=None):
         from df.enhance import enhance, init_df
 
         self._enhance = enhance
         self.model, self.df_state, _ = init_df()
         self.sample_rate = self.df_state.sr()  # 48000
+        self.atten_lim_db = atten_lim_db
 
     def enhance(self, mono_i16):
         audio = torch.from_numpy(mono_i16.astype(np.float32) / 32768.0).unsqueeze(0)
-        cleaned = self._enhance(self.model, self.df_state, audio)
+        cleaned = self._enhance(
+            self.model, self.df_state, audio, atten_lim_db=self.atten_lim_db
+        )
         return cleaned.squeeze(0).cpu().numpy()
 
 
@@ -72,6 +75,8 @@ class Go2WhisperNode(Node):
 
         # DeepFilterNet noise reduction.
         self.declare_parameter("enable_denoise", True)
+        self.declare_parameter("atten_lim_db", 12.0)  # 0 means no limit
+        self.declare_parameter("output_gain", 1.0)
 
         # Whisper command bias.
         self.declare_parameter(
@@ -98,6 +103,9 @@ class Go2WhisperNode(Node):
         self.fp16 = bool(self.get_parameter("fp16").value)
 
         self.enable_denoise = bool(self.get_parameter("enable_denoise").value)
+        atten = float(self.get_parameter("atten_lim_db").value)
+        self.atten_lim_db = atten if atten > 0.0 else None
+        self.output_gain = float(self.get_parameter("output_gain").value)
 
         self.initial_prompt = self.get_parameter("initial_prompt").value
 
@@ -146,7 +154,7 @@ class Go2WhisperNode(Node):
         self.denoiser = None
         if self.enable_denoise:
             self.get_logger().info("Loading DeepFilterNet")
-            self.denoiser = DeepFilterDenoiser()
+            self.denoiser = DeepFilterDenoiser(atten_lim_db=self.atten_lim_db)
 
         self.get_logger().info(
             "Loading Whisper model '%s' on %s" % (self.model_name, device)
@@ -232,6 +240,8 @@ class Go2WhisperNode(Node):
 
                 if self.denoiser is not None:
                     cleaned48_f32 = self.denoiser.enhance(audio48_i16)
+                    if self.output_gain != 1.0:
+                        cleaned48_f32 = cleaned48_f32 * self.output_gain
                     cleaned48_i16 = np.clip(
                         cleaned48_f32 * 32768.0, -32768, 32767
                     ).astype(np.int16)
