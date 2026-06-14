@@ -154,7 +154,7 @@ class WanderNode(Node):
     def start_bark(self):
         msg = String()
         msg.data = "bark"
-        self.audio_pub.publish(msg)
+        self.bark_pub.publish(msg)
         
         self.get_logger().info('PUBLISHED BARK')
         duration = max(abs(self.trick_duration), 0.01)
