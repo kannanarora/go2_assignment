@@ -11,6 +11,8 @@ def generate_launch_description():
     backend = LaunchConfiguration("backend")
     enable_denoise = LaunchConfiguration("enable_denoise")
     atten_lim_db = LaunchConfiguration("atten_lim_db")
+    use_silero = LaunchConfiguration("use_silero")
+    vad_threshold = LaunchConfiguration("vad_threshold")
     min_rms = LaunchConfiguration("min_rms")
     endpoint_silence = LaunchConfiguration("endpoint_silence")
     vad_filter = LaunchConfiguration("vad_filter")
@@ -23,6 +25,8 @@ def generate_launch_description():
         DeclareLaunchArgument("backend", default_value="faster"),
         DeclareLaunchArgument("enable_denoise", default_value="true"),
         DeclareLaunchArgument("atten_lim_db", default_value="12.0"),
+        DeclareLaunchArgument("use_silero", default_value="true"),
+        DeclareLaunchArgument("vad_threshold", default_value="0.3"),
         DeclareLaunchArgument("min_rms", default_value="800"),
         DeclareLaunchArgument("endpoint_silence", default_value="0.6"),
         DeclareLaunchArgument("vad_filter", default_value="false"),
@@ -39,6 +43,8 @@ def generate_launch_description():
                 "backend": backend,
                 "enable_denoise": enable_denoise,
                 "atten_lim_db": atten_lim_db,
+                "use_silero": use_silero,
+                "vad_threshold": vad_threshold,
                 "min_rms": min_rms,
                 "endpoint_silence": endpoint_silence,
                 "vad_filter": vad_filter,
