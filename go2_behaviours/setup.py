@@ -32,6 +32,7 @@ setup(
             'audio_player_node = go2_behaviours.audio_player_node:main',
             'audiohub_player_node = go2_behaviours.audiohub_player_node:main',
             'audio_dump_node = go2_behaviours.audio_dump_node:main',
+            'voice_command_mapper_node = go2_behaviours.voice_command_mapper_node:main',
         ],
     },
 )
