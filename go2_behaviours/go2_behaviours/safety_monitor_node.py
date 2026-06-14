@@ -44,8 +44,10 @@ class SafetyMonitorNode(Node):
             self.declare_parameter('enable_stand_command', True).value)
         self.self_ignore_distance_m = float(
             self.declare_parameter('self_ignore_distance_m', 0.68).value)
-        self.recovery_clear_threshold_m = float(
-            self.declare_parameter('recovery_clear_threshold_m', 1.0).value)
+        self.min_sit_hold_s = float(
+            self.declare_parameter('min_sit_hold_s', 2.5).value)
+        self.recovery_cooldown_s = float(
+            self.declare_parameter('recovery_cooldown_s', 1.5).value)
         self.log_rate_hz = float(self.declare_parameter('log_rate_hz', 2.0).value)
 
         if self.clear_threshold_m <= self.sit_threshold_m:
@@ -54,6 +56,8 @@ class SafetyMonitorNode(Node):
         self._safety_active = False
         self._blocked_count = 0
         self._clear_count = 0
+        self._sit_since_time = 0.0
+        self._rise_since_time = 0.0
         self._last_log_time = 0.0
 
         qos = QoSProfile(
@@ -108,11 +112,10 @@ class SafetyMonitorNode(Node):
             # Ignore leg/body returns very close to the sensor while sitting.
             if blocked and front_range < self.self_ignore_distance_m:
                 blocked = False
+            # require a genuinely open path before standing
             clear = (
                 not math.isfinite(front_range)
                 or front_range > self.clear_threshold_m
-                or front_range > self.recovery_clear_threshold_m
-                or (not blocked and front_range >= self.sit_threshold_m)
             )
         else:
             clear = (
@@ -131,13 +134,20 @@ class SafetyMonitorNode(Node):
             self._clear_count = 0
         # While safety is active, hold clear_count in the dead zone (0.8-1.2 m).
 
+        now = time.monotonic()
+
         if not self._safety_active:
-            if self._blocked_count >= self.required_blocked_frames:
+            cooled_down = now - self._rise_since_time >= self.recovery_cooldown_s
+            if cooled_down and self._blocked_count >= self.required_blocked_frames:
                 self._set_safety_active(True)
                 self._send_command(self.sit_command)
                 self._blocked_count = 0
                 self._clear_count = 0
-        elif self.enable_stand_command and self._clear_count >= self.required_clear_frames:
+        elif (
+            self.enable_stand_command
+            and now - self._sit_since_time >= self.min_sit_hold_s
+            and self._clear_count >= self.required_clear_frames
+        ):
             self._set_safety_active(False)
             self._send_command(self.stand_command)
             self._blocked_count = 0
@@ -146,6 +156,11 @@ class SafetyMonitorNode(Node):
         self._maybe_log(front_range, blocked, clear)
 
     def _set_safety_active(self, active: bool):
+        now = time.monotonic()
+        if active and not self._safety_active:
+            self._sit_since_time = now
+        elif not active and self._safety_active:
+            self._rise_since_time = now
         self._safety_active = active
         msg = Bool()
         msg.data = active
