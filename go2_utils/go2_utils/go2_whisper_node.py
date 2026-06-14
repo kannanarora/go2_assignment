@@ -182,6 +182,9 @@ class Go2WhisperNode(Node):
         )
 
         self.audio_queue = queue.Queue()
+        # Finished utterances wait here for transcription, so the slow
+        # transcribe step never blocks the VAD thread from listening.
+        self.utterance_queue = queue.Queue()
         self.running = True
 
         self.denoiser = None
@@ -205,6 +208,8 @@ class Go2WhisperNode(Node):
 
         self.worker = threading.Thread(target=self.worker_loop, daemon=True)
         self.worker.start()
+        self.transcriber = threading.Thread(target=self.transcribe_loop, daemon=True)
+        self.transcriber.start()
 
         self.get_logger().info("Listening on %s" % self.audio_topic)
         self.get_logger().info("Publishing text on %s" % self.text_topic)
@@ -366,7 +371,8 @@ class Go2WhisperNode(Node):
 
             if silence_ms >= endpoint_ms or utt_len >= max_samples:
                 if utt_len >= min_samples:
-                    self.finalize(np.concatenate(utterance))
+                    # Hand off to the transcribe thread; never block listening.
+                    self.utterance_queue.put(np.concatenate(utterance))
                 utterance = []
                 utt_len = 0
                 in_speech = False
@@ -376,6 +382,14 @@ class Go2WhisperNode(Node):
                 if self.vad is not None:
                     self.vad.reset()
                     vad_speech = False
+
+    def transcribe_loop(self):
+        while self.running:
+            try:
+                audio48_i16 = self.utterance_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            self.finalize(audio48_i16)
 
     def finalize(self, audio48_i16):
         try:
@@ -434,6 +448,8 @@ class Go2WhisperNode(Node):
         self.running = False
         if hasattr(self, "worker") and self.worker.is_alive():
             self.worker.join(timeout=1.0)
+        if hasattr(self, "transcriber") and self.transcriber.is_alive():
+            self.transcriber.join(timeout=1.0)
         super().destroy_node()
 
 
