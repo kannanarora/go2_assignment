@@ -43,7 +43,9 @@ class SafetyMonitorNode(Node):
         self.enable_stand_command = bool(
             self.declare_parameter('enable_stand_command', True).value)
         self.self_ignore_distance_m = float(
-            self.declare_parameter('self_ignore_distance_m', 0.75).value)
+            self.declare_parameter('self_ignore_distance_m', 0.68).value)
+        self.recovery_clear_threshold_m = float(
+            self.declare_parameter('recovery_clear_threshold_m', 1.0).value)
         self.log_rate_hz = float(self.declare_parameter('log_rate_hz', 2.0).value)
 
         if self.clear_threshold_m <= self.sit_threshold_m:
@@ -103,11 +105,14 @@ class SafetyMonitorNode(Node):
         blocked = math.isfinite(front_range) and front_range < self.sit_threshold_m
 
         if self._safety_active:
+            # Ignore leg/body returns very close to the sensor while sitting.
             if blocked and front_range < self.self_ignore_distance_m:
                 blocked = False
             clear = (
                 not math.isfinite(front_range)
                 or front_range > self.clear_threshold_m
+                or front_range > self.recovery_clear_threshold_m
+                or (not blocked and front_range >= self.sit_threshold_m)
             )
         else:
             clear = (
@@ -121,9 +126,10 @@ class SafetyMonitorNode(Node):
         elif clear:
             self._clear_count += 1
             self._blocked_count = 0
-        else:
+        elif not self._safety_active:
             self._blocked_count = 0
             self._clear_count = 0
+        # While safety is active, hold clear_count in the dead zone (0.8-1.2 m).
 
         if not self._safety_active:
             if self._blocked_count >= self.required_blocked_frames:
@@ -162,7 +168,7 @@ class SafetyMonitorNode(Node):
         front_text = f'{front_range:.2f}m' if math.isfinite(front_range) else 'inf'
         self.get_logger().info(
             f'front={front_text} blocked={blocked} clear={clear} '
-            f'safety_active={self._safety_active}'
+            f'safety_active={self._safety_active} clear_count={self._clear_count}'
         )
 
 
