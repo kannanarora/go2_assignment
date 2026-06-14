@@ -19,6 +19,7 @@ class WanderNode(Node):
             "trigger_topic", "/trigger_behaviour"
         ).value
         self.cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
+        self.bark_topic = self.declare_parameter("bark_topic", "/bark").value
 
         self.forward_speed_mps = float(
             self.declare_parameter("forward_speed_mps", 0.3).value
@@ -54,6 +55,7 @@ class WanderNode(Node):
         self._last_log_time = 0.0
         self.cmd_pub = self.create_publisher(String, self.trigger_topic, 10)
         self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
+        self.bark_pub = self.create_publisher(String, self.bark_topic, 10)
 
         # Actions: walk, turn, sit, stretch, bark, rise_sit
 
@@ -150,8 +152,11 @@ class WanderNode(Node):
         return
 
     def start_bark(self):
-        # TODO
-        self.get_logger().info('TODO PUBLISH BARK')
+        msg = String()
+        msg.data = "bark"
+        self.audio_pub.publish(msg)
+        
+        self.get_logger().info('PUBLISHED BARK')
         duration = max(abs(self.trick_duration), 0.01)
         self.set_phase("bark", duration)
         return
