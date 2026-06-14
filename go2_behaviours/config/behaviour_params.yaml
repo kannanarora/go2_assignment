@@ -1,14 +1,20 @@
 behaviour_planner_node:
   ros__parameters:
-    planned_behaviour_topic: /planned_behaviour
-    auto_publish: false
-    default_behaviour: stand
-    period_s: 5.0
+    scan_topic: /front_scan
+    greeting_min_distance: 1.8
+    greeting_distance: 2.3
+    safety_clear_distance: 1.2
+    front_half_angle_deg: 15.0
+    tick_rate_s: 3.0
+    hello_confirm_ticks: 2
+    hello_cooldown_s: 12.0
+    voice_topic: /go2/whisper/text
 
 behaviour_executor_node:
   ros__parameters:
-    planned_behaviour_topic: /planned_behaviour
+    requested_behaviour_topic: /requested_behaviour
     trigger_behaviour_topic: /trigger_behaviour
+    wander_pause_topic: /wander_pause
 
 sport_client_wrapper_node:
   ros__parameters:
@@ -17,22 +23,27 @@ sport_client_wrapper_node:
 
 safety_monitor_node:
   ros__parameters:
-    stop_topic: /safety_stop
+    scan_topic: /front_scan
+    safety_override_topic: /safety_override
     trigger_behaviour_topic: /trigger_behaviour
-    safety_command: lie_down
-
-sit_stand_loop_node:
-  ros__parameters:
-    stand_api_id: 1004
-    sit_api_id: 1009
-    period_s: 4.0
-    start_with_stand: true
+    sit_threshold_m: 0.8
+    clear_threshold_m: 1.2
+    front_half_angle_deg: 15.0
+    required_blocked_frames: 2
+    required_clear_frames: 3
+    safety_command: sit
+    clear_command: rise_sit
+    enable_stand_command: true
+    self_ignore_distance_m: 0.75
+    log_rate_hz: 2.0
 
 wander_node:
   ros__parameters:
     scan_topic: /front_scan
     trigger_topic: /trigger_behaviour
     cmd_vel_topic: /cmd_vel
+    safety_override_topic: /safety_override
+    wander_pause_topic: /wander_pause
     forward_speed_mps: 0.66
     turn_speed_radps: 1.26
     avoid_turn_speed_radps: 1.35

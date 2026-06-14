@@ -14,7 +14,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 
 
 class WanderNode(Node):
@@ -26,6 +26,12 @@ class WanderNode(Node):
             "trigger_topic", "/trigger_behaviour"
         ).value
         self.cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
+        self.safety_override_topic = self.declare_parameter(
+            "safety_override_topic", "/safety_override"
+        ).value
+        self.wander_pause_topic = self.declare_parameter(
+            "wander_pause_topic", "/wander_pause"
+        ).value
 
         self.forward_speed_mps = float(
             self.declare_parameter("forward_speed_mps", 0.66).value
@@ -96,6 +102,8 @@ class WanderNode(Node):
         self.turn_direction = 1.0
         self._last_command = None
         self._last_log_time = 0.0
+        self._safety_active = False
+        self._wander_paused = False
 
         scan_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -111,6 +119,18 @@ class WanderNode(Node):
             self.scan_topic,
             self.scan_callback,
             scan_qos,
+        )
+        self.create_subscription(
+            Bool,
+            self.safety_override_topic,
+            self._on_safety,
+            10,
+        )
+        self.create_subscription(
+            Bool,
+            self.wander_pause_topic,
+            self._on_wander_pause,
+            10,
         )
 
         timer_period = 1.0 / max(self.command_rate_hz, 1.0)
@@ -132,11 +152,24 @@ class WanderNode(Node):
             )
         )
 
+    def _on_safety(self, msg: Bool):
+        self._safety_active = msg.data
+
+    def _on_wander_pause(self, msg: Bool):
+        self._wander_paused = msg.data
+
+    def _movement_blocked(self) -> bool:
+        return self._safety_active or self._wander_paused
+
     def scan_callback(self, scan: LaserScan):
         self.latest_scan = scan
         self.latest_scan_time = time.monotonic()
 
     def tick(self):
+        if self._movement_blocked():
+            self.publish_move(0.0, 0.0)
+            return
+
         now = time.monotonic()
         front = self.sector_min(-self.front_half_angle_deg, self.front_half_angle_deg)
         blocked = math.isfinite(front) and front < self.avoid_threshold_m
