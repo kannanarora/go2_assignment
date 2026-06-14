@@ -46,24 +46,6 @@ FUZZY_KEYWORDS = [
     if " " not in kw
 ]
 
-# Wake word: the robot is named "Byte", which Whisper usually hears as
-# "bye"/"bite"/"buy". Gating commands behind a wake word is the biggest
-# reducer of false triggers - nothing fires unless the robot is addressed.
-WAKE_WORDS = ("byte", "bite", "bye", "buy")
-
-
-def is_wake_word(text, fuzzy_threshold=0.8):
-    words = _normalize(text).split()
-    if any(w in WAKE_WORDS for w in words):
-        return True
-    for word in words:
-        if len(word) < 3:
-            continue
-        for wake in WAKE_WORDS:
-            if SequenceMatcher(None, word, wake).ratio() >= fuzzy_threshold:
-                return True
-    return False
-
 
 def _normalize(text):
     cleaned = "".join(c if c.isalnum() or c.isspace() else " " for c in text)
@@ -131,18 +113,13 @@ class VoiceCommandMapperNode(Node):
         self.declare_parameter("trigger_topic", "/trigger_behaviour")
         self.declare_parameter("cooldown_sec", 2.0)
         self.declare_parameter("fuzzy_threshold", 0.8)
-        self.declare_parameter("enable_wake_word", True)
-        self.declare_parameter("wake_window_sec", 8.0)
 
         self.text_topic = self.get_parameter("text_topic").value
         self.trigger_topic = self.get_parameter("trigger_topic").value
         self.cooldown_sec = float(self.get_parameter("cooldown_sec").value)
         self.fuzzy_threshold = float(self.get_parameter("fuzzy_threshold").value)
-        self.enable_wake_word = bool(self.get_parameter("enable_wake_word").value)
-        self.wake_window_sec = float(self.get_parameter("wake_window_sec").value)
 
         self.last_fire = 0.0
-        self.awake_until = 0.0
 
         self.pub = self.create_publisher(String, self.trigger_topic, 10)
         self.sub = self.create_subscription(
@@ -153,44 +130,25 @@ class VoiceCommandMapperNode(Node):
         )
 
         self.get_logger().info(
-            "Mapping %s -> %s (cooldown=%.1fs wake_word=%s)"
-            % (
-                self.text_topic,
-                self.trigger_topic,
-                self.cooldown_sec,
-                "Byte" if self.enable_wake_word else "off",
-            )
+            "Mapping %s -> %s (cooldown=%.1fs)"
+            % (self.text_topic, self.trigger_topic, self.cooldown_sec)
         )
 
     def text_callback(self, msg: String):
         text = msg.data.strip()
-        now = time.monotonic()
-
-        # Self-trigger guard: stay deaf briefly after firing, so the robot's
-        # own response/motor noise can't trigger the next command.
-        if now - self.last_fire < self.cooldown_sec:
-            return
-
-        # Wake word gate: only listen for commands shortly after being named.
-        if self.enable_wake_word and now > self.awake_until:
-            if is_wake_word(text, self.fuzzy_threshold):
-                self.awake_until = now + self.wake_window_sec
-                self.get_logger().info(
-                    "woke up (heard '%s') - listening %.0fs" % (text, self.wake_window_sec)
-                )
-            else:
-                self.get_logger().info("asleep, ignoring '%s'" % text)
-            return
-
         token, detail = match_command(text, fuzzy_threshold=self.fuzzy_threshold)
+
         if token is None:
             self.get_logger().info("ignored '%s' (%s)" % (text, detail))
             return
 
+        now = time.monotonic()
+        if now - self.last_fire < self.cooldown_sec:
+            self.get_logger().info(
+                "cooldown, dropping '%s' -> %s [%s]" % (text, token, detail)
+            )
+            return
         self.last_fire = now
-        # Keep the window open so follow-up commands work without re-waking.
-        if self.enable_wake_word:
-            self.awake_until = now + self.wake_window_sec
 
         out = String()
         out.data = token
