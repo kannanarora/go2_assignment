@@ -21,7 +21,7 @@ class WanderNode(Node):
         self.cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
 
         self.forward_speed_mps = float(
-            self.declare_parameter("forward_speed_mps", 0.1).value
+            self.declare_parameter("forward_speed_mps", 0.3).value
         )
         self.turn_speed_radps = float(
             self.declare_parameter("turn_speed_radps", 1.26).value
@@ -32,13 +32,13 @@ class WanderNode(Node):
             self.declare_parameter("min_walk_distance_m", 0.1).value
         )
         self.max_walk_distance_m = float(
-            self.declare_parameter("max_walk_distance_m", 0.3).value
+            self.declare_parameter("max_walk_distance_m", 0.25).value
         )
         self.stop_duration_s = float(
             self.declare_parameter("stop_duration_s", 0.4).value
         )
         self.trick_duration = float(
-            self.declare_parameter("trick_duration_s", 2).value
+            self.declare_parameter("trick_duration_s", 5).value
         )
         self.command_rate_hz = float(
             self.declare_parameter("command_rate_hz", 10.0).value
@@ -87,6 +87,7 @@ class WanderNode(Node):
     def tick(self):
         now = time.monotonic()
         if now >= self.phase_end_time:
+            self.publish_move(0.0, 0.0)
             self.advance_phase()
 
         if self.phase == "walk":
@@ -113,7 +114,7 @@ class WanderNode(Node):
             # Normalize probabilities and choose
             probs = [w / total for w in weights]
             state = random.choices(states, probs, k=1)[0]
-            self.get_logger().info(f'Next chosen state: {state}')
+            self.get_logger().info(f'NEXT STATE: {state}')
 
         if state == "turn":
             self.start_random_turn()
@@ -143,8 +144,7 @@ class WanderNode(Node):
         return
 
     def start_stretch(self):
-        # TODO
-        self.get_logger().info('TODO PUBLISH STRETCH')
+        self.publish_command('stretch', force=True)
         duration = max(abs(self.trick_duration), 0.01)
         self.set_phase("stretch", duration)
         return
@@ -160,11 +160,13 @@ class WanderNode(Node):
         angle_rad = math.radians(random.uniform(self.min_turn_deg, self.max_turn_deg))
         self.turn_direction = random.choice([-1.0, 1.0])
         duration = angle_rad / max(abs(self.turn_speed_radps), 0.01)
+        self.get_logger().info(f'TURNING')
         self.set_phase("turn", duration)
 
     def start_random_walk(self):
         distance = random.uniform(self.min_walk_distance_m, self.max_walk_distance_m)
         duration = distance / max(abs(self.forward_speed_mps), 0.01)
+        self.get_logger().info(f'WALKING {distance}m AT SPEED {self.forward_speed_mps}')
         self.set_phase("walk", duration)
 
     def set_phase(self, phase: str, duration_s: float):
