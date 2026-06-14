@@ -21,7 +21,8 @@ class CmdVelBridgeNode(Node):
     def __init__(self):
         super().__init__("cmd_vel_bridge_node")
 
-        self.trick_commands = ["stop", "sit", "lie_down", "stand_down", "rise_sit"]
+        # TODO
+        self.trick_commands = ["stop", "sit", "lie_down", "stand_down", "rise_sit", "bark", "stretch"]
 
         self.cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
         self.request_topic = self.declare_parameter(
