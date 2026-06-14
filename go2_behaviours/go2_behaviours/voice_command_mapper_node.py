@@ -34,6 +34,7 @@ COMMAND_RULES = [
     (("stand", "get up"), "stand"),
     (("stop", "halt", "freeze"), "stop"),
     (("hello", "hey", "wave"), "hello"),
+    (("dance", "dancing"), "dance"),
     (("come", "walk", "forward"), "walk"),
 ]
 
