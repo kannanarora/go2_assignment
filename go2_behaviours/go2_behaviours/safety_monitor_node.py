@@ -4,6 +4,7 @@ Tier 1 - Reactive Layer: Safety Monitor Node
 
 import math
 import time
+from collections import deque
 
 import rclpy
 from rclpy.node import Node
@@ -44,21 +45,25 @@ class SafetyMonitorNode(Node):
             self.declare_parameter('enable_stand_command', True).value)
         self.self_ignore_distance_m = float(
             self.declare_parameter('self_ignore_distance_m', 0.68).value)
+        self.recovery_clear_threshold_m = float(
+            self.declare_parameter('recovery_clear_threshold_m', 1.45).value)
+        self.recovery_window_frames = int(
+            self.declare_parameter('recovery_window_frames', 15).value)
         self.min_sit_hold_s = float(
-            self.declare_parameter('min_sit_hold_s', 2.5).value)
-        self.recovery_cooldown_s = float(
-            self.declare_parameter('recovery_cooldown_s', 1.5).value)
+            self.declare_parameter('min_sit_hold_s', 3.0).value)
         self.log_rate_hz = float(self.declare_parameter('log_rate_hz', 2.0).value)
 
         if self.clear_threshold_m <= self.sit_threshold_m:
             self.clear_threshold_m = self.sit_threshold_m + 0.2
+        if self.recovery_clear_threshold_m <= self.clear_threshold_m:
+            self.recovery_clear_threshold_m = self.clear_threshold_m + 0.2
 
         self._safety_active = False
         self._blocked_count = 0
         self._clear_count = 0
         self._sit_since_time = 0.0
-        self._rise_since_time = 0.0
         self._last_log_time = 0.0
+        self._recent_front = deque(maxlen=max(self.recovery_window_frames, 1))
 
         qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -73,8 +78,9 @@ class SafetyMonitorNode(Node):
             LaserScan, self.scan_topic, self._on_scan, qos)
 
         self.get_logger().info(
-            f'SafetyMonitorNode ready — sit<{self.sit_threshold_m}m, '
-            f'clear>{self.clear_threshold_m}m, front=±{self.front_half_angle_deg}deg'
+            f'SafetyMonitorNode ready — sit when <{self.sit_threshold_m}m, '
+            f'stay sitting while <{self.recovery_clear_threshold_m}m, '
+            f'stand when clear, front=±{self.front_half_angle_deg}deg'
         )
 
     def _angle_to_index(self, scan: LaserScan, angle_rad: float) -> int:
@@ -104,19 +110,39 @@ class SafetyMonitorNode(Node):
 
         return min(valid_ranges) if valid_ranges else float('inf')
 
+    def _is_recovery_clear(self, front_range: float) -> bool:
+        threshold = self.recovery_clear_threshold_m
+
+        if math.isfinite(front_range) and front_range > threshold:
+            return True
+
+        if len(self._recent_front) < self.recovery_window_frames:
+            return False
+
+        for value in self._recent_front:
+            if math.isfinite(value) and value < threshold:
+                return False
+
+        inf_count = sum(1 for value in self._recent_front if not math.isfinite(value))
+        return inf_count >= int(self.recovery_window_frames * 0.8)
+
     def _on_scan(self, scan: LaserScan):
         front_range = self._front_min_range(scan)
+        self._recent_front.append(front_range)
         blocked = math.isfinite(front_range) and front_range < self.sit_threshold_m
 
         if self._safety_active:
             # Ignore leg/body returns very close to the sensor while sitting.
             if blocked and front_range < self.self_ignore_distance_m:
                 blocked = False
-            # require a genuinely open path before standing
-            clear = (
-                not math.isfinite(front_range)
-                or front_range > self.clear_threshold_m
+            # Stay sitting while anything is still within the "near" zone.
+            still_near = (
+                math.isfinite(front_range)
+                and front_range < self.recovery_clear_threshold_m
             )
+            if still_near:
+                self._clear_count = 0
+            clear = self._is_recovery_clear(front_range)
         else:
             clear = (
                 not math.isfinite(front_range)
@@ -137,8 +163,7 @@ class SafetyMonitorNode(Node):
         now = time.monotonic()
 
         if not self._safety_active:
-            cooled_down = now - self._rise_since_time >= self.recovery_cooldown_s
-            if cooled_down and self._blocked_count >= self.required_blocked_frames:
+            if self._blocked_count >= self.required_blocked_frames:
                 self._set_safety_active(True)
                 self._send_command(self.sit_command)
                 self._blocked_count = 0
@@ -159,8 +184,9 @@ class SafetyMonitorNode(Node):
         now = time.monotonic()
         if active and not self._safety_active:
             self._sit_since_time = now
+            self._recent_front.clear()
         elif not active and self._safety_active:
-            self._rise_since_time = now
+            self._recent_front.clear()
         self._safety_active = active
         msg = Bool()
         msg.data = active
