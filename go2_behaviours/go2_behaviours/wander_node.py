@@ -29,10 +29,10 @@ class WanderNode(Node):
         self.min_turn_deg = float(self.declare_parameter("min_turn_deg", 35.0).value)
         self.max_turn_deg = float(self.declare_parameter("max_turn_deg", 160.0).value)
         self.min_walk_distance_m = float(
-            self.declare_parameter("min_walk_distance_m", 1.2).value
+            self.declare_parameter("min_walk_distance_m", 0.1).value
         )
         self.max_walk_distance_m = float(
-            self.declare_parameter("max_walk_distance_m", 3.5).value
+            self.declare_parameter("max_walk_distance_m", 0.3).value
         )
         self.stop_duration_s = float(
             self.declare_parameter("stop_duration_s", 0.4).value
