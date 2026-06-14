@@ -48,8 +48,8 @@ def generate_launch_description():
             ),
             Node(
                 package="go2_utils",
-                executable="audio_player_node",
-                name="audio_player_node",
+                executable="audiohub_player_node",
+                name="audiohub_player_node",
                 output="screen",
                 parameters=[params_file],
             ),
