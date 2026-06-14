@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# THIS WILL BE USED AS THE SEQUENCING LAYER
 
 import json
 import math
@@ -19,6 +20,8 @@ SPORT_API_ID_SWITCH_JOYSTICK = 1027
 class CmdVelBridgeNode(Node):
     def __init__(self):
         super().__init__("cmd_vel_bridge_node")
+
+        self.trick_commands = ["stop", "sit", "lie_down", "stand_down", "rise_sit"]
 
         self.cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
         self.request_topic = self.declare_parameter(
@@ -116,15 +119,19 @@ class CmdVelBridgeNode(Node):
         if self.auto_joystick_control and self.target_is_nonzero():
             self.disable_joystick_for_move()
 
+    # If another command is detected, immediately stop
     def trigger_callback(self, msg: String):
         command = msg.data.strip().lower()
-        if command in ("stop", "sit", "lie_down", "stand_down", "rise_sit"):
+        if command in self.trick_commands:
             self.stop_target()
 
+    # Timer to continually publish movement command to the sports api
     def publish_smoothed_move(self):
         now = time.monotonic()
         dt = max(now - self._last_publish_time, 0.0)
         self._last_publish_time = now
+
+        # TODO start free avoid with small pause on first publish
 
         if (
             self.cmd_vel_timeout_s > 0.0
@@ -190,6 +197,7 @@ class CmdVelBridgeNode(Node):
             for value in (self.target_vx, self.target_vy, self.target_vyaw)
         )
 
+    # Send single movement request to sports api
     def publish_move_request(self, vx: float, vy: float, vyaw: float):
         params = {"x": float(vx), "y": float(vy), "z": float(vyaw)}
         req = self.build_request(SPORT_API_ID_MOVE, params, noreply=True)
