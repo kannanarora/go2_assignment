@@ -71,8 +71,14 @@ class Go2WhisperNode(Node):
         self.declare_parameter("max_utterance", 4.0)      # force-flush cap (s)
         self.declare_parameter("min_text_length", 2)
         # Require this many consecutive loud frames (20 ms each) to start an
-        # utterance, so brief lidar noise bursts don't trigger it.
-        self.declare_parameter("speech_start_frames", 4)
+        # utterance, so a single noise blip doesn't trigger it. Keep small so
+        # soft onsets (the "s" in "sit") aren't lost.
+        self.declare_parameter("speech_start_frames", 2)
+        # Audio kept before the trigger so soft word onsets aren't clipped.
+        self.declare_parameter("pre_roll_ms", 300)
+        # Peak-normalize the denoised utterance. Safe because we process a
+        # whole utterance at once; lifts quiet denoised speech for Whisper.
+        self.declare_parameter("normalize", True)
         # Drop an utterance if Whisper's no_speech_prob exceeds this. Lidar
         # noise reads ~0.9; real commands read well below.
         self.declare_parameter("max_no_speech", 0.7)
@@ -107,6 +113,8 @@ class Go2WhisperNode(Node):
         self.max_utterance = float(self.get_parameter("max_utterance").value)
         self.min_text_length = int(self.get_parameter("min_text_length").value)
         self.speech_start_frames = int(self.get_parameter("speech_start_frames").value)
+        self.pre_roll_ms = int(self.get_parameter("pre_roll_ms").value)
+        self.normalize = bool(self.get_parameter("normalize").value)
         self.max_no_speech = float(self.get_parameter("max_no_speech").value)
 
         self.backend = self.get_parameter("backend").value
@@ -261,7 +269,7 @@ class Go2WhisperNode(Node):
         in_speech = False
         silence_ms = 0
         loud_run = 0
-        pre_roll = deque(maxlen=max(1, self.speech_start_frames))
+        pre_roll = deque(maxlen=max(1, self.pre_roll_ms // self.frame_ms))
 
         while self.running:
             try:
@@ -305,11 +313,17 @@ class Go2WhisperNode(Node):
 
             if self.denoiser is not None:
                 cleaned_f32 = self.denoiser.enhance(audio48_i16)
-                cleaned48_i16 = np.clip(
-                    cleaned_f32 * 32768.0, -32768, 32767
-                ).astype(np.int16)
             else:
-                cleaned48_i16 = audio48_i16
+                cleaned_f32 = audio48_i16.astype(np.float32) / 32768.0
+
+            if self.normalize:
+                peak = float(np.max(np.abs(cleaned_f32)))
+                if peak > 0.0:
+                    cleaned_f32 = cleaned_f32 * (0.95 / peak)
+
+            cleaned48_i16 = np.clip(
+                cleaned_f32 * 32768.0, -32768, 32767
+            ).astype(np.int16)
 
             audio16 = self.resample_to_16k(cleaned48_i16)
             clean_rms = audioop.rms(audio16.tobytes(), 2)
