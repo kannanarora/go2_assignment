@@ -7,13 +7,6 @@ import time
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from rclpy.qos import (
-    DurabilityPolicy,
-    HistoryPolicy,
-    QoSProfile,
-    ReliabilityPolicy,
-)
-from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 
 
@@ -22,7 +15,6 @@ class WanderNode(Node):
         super().__init__("wander_node")
 
         # All parameters
-        self.scan_topic = self.declare_parameter("scan_topic", "/front_scan").value
         self.trigger_topic = self.declare_parameter(
             "trigger_topic", "/trigger_behaviour"
         ).value
@@ -42,26 +34,11 @@ class WanderNode(Node):
         self.max_walk_distance_m = float(
             self.declare_parameter("max_walk_distance_m", 3.5).value
         )
-        self.clear_threshold_m = float(
-            self.declare_parameter("clear_threshold_m", 1.75).value
-        )
-        self.front_half_angle_deg = float(
-            self.declare_parameter("front_half_angle_deg", 18.0).value
-        )
-        self.side_sector_min_deg = float(
-            self.declare_parameter("side_sector_min_deg", 25.0).value
-        )
-        self.side_sector_max_deg = float(
-            self.declare_parameter("side_sector_max_deg", 80.0).value
-        )
         self.stop_duration_s = float(
             self.declare_parameter("stop_duration_s", 0.4).value
         )
         self.trick_duration = float(
             self.declare_parameter("trick_duration_s", 2).value
-        )
-        self.scan_timeout_s = float(
-            self.declare_parameter("scan_timeout_s", 1.5).value
         )
         self.command_rate_hz = float(
             self.declare_parameter("command_rate_hz", 10.0).value
@@ -70,29 +47,13 @@ class WanderNode(Node):
         self.startup_command = self.declare_parameter(
             "startup_command", "balance_stand"
         ).value
-        self.latest_scan = None
-        self.latest_scan_time = 0.0
         self.phase = "startup"
         self.phase_end_time = time.monotonic() + 1.0
         self.turn_direction = 1.0
         self._last_command = None
         self._last_log_time = 0.0
-
-        scan_qos = QoSProfile(
-            history=HistoryPolicy.KEEP_LAST,
-            depth=1,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
-            durability=DurabilityPolicy.VOLATILE,
-        )
-
         self.cmd_pub = self.create_publisher(String, self.trigger_topic, 10)
         self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
-        self.scan_sub = self.create_subscription(
-            LaserScan,
-            self.scan_topic,
-            self.scan_callback,
-            scan_qos,
-        )
 
         # Actions: walk, turn, sit, stretch, bark, rise_sit
 
@@ -123,10 +84,6 @@ class WanderNode(Node):
             )
         )
 
-    def scan_callback(self, scan: LaserScan):
-        self.latest_scan = scan
-        self.latest_scan_time = time.monotonic()
-
     def tick(self):
         now = time.monotonic()
         if now >= self.phase_end_time:
@@ -134,39 +91,41 @@ class WanderNode(Node):
 
         if self.phase == "walk":
             self.publish_move(self.forward_speed_mps, 0.0)
-        elif self.phase in ("turn"):
+        elif self.phase == "turn":
             self.publish_move(0.0, self.turn_direction * self.current_turn_speed())
-        else:
-            self.publish_move(0.0, 0.0)
+        # else:
+        #     self.publish_move(0.0, 0.0)
 
     def advance_phase(self):
         if self.phase == "startup":
             self.start_random_turn()
+            return
 
         # Weighted random choice from transitions[current]
         options = self.transitions.get(self.phase, [(self.phase, 1.0)])
         states, weights = zip(*options)
         total = sum(weights)
 
+        # Check weights exsit
         if total <= 0:
-            return states[0]
+            state = states[0]
+        else:
+            # Normalize probabilities and choose
+            probs = [w / total for w in weights]
+            state = random.choices(states, probs, k=1)[0]
+            self.get_logger().info(f'Next chosen state: {state}')
 
-        # Normalize probabilities and choose
-        probs = [w / total for w in weights]
-        state = random.choices(states, probs, k=1)[0]
-        self.get_logger().info('Next chosen state: {state}')
-
-        if self.phase == "turn":
-            self.start_random_walk()
-        elif self.phase == "walk":
+        if state == "turn":
             self.start_random_turn()
-        elif self.phase == "sit":
+        elif state == "walk":
+            self.start_random_walk()
+        elif state == "sit":
             self.start_sit()
-        elif self.phase == "stretch":
+        elif state == "stretch":
             self.start_stretch()
-        elif self.phase == "rise_sit":
+        elif state == "rise_sit":
             self.start_rise_sit()
-        elif self.phase == "bark":
+        elif state == "bark":
             self.start_bark()
         else:
             self.start_random_turn()
@@ -186,7 +145,8 @@ class WanderNode(Node):
     def start_stretch(self):
         # TODO
         self.get_logger().info('TODO PUBLISH STRETCH')
-        self.set_phase("rise_sit", duration)
+        duration = max(abs(self.trick_duration), 0.01)
+        self.set_phase("stretch", duration)
         return
 
     def start_bark(self):
