@@ -18,6 +18,7 @@ Output:
 import audioop
 import queue
 import threading
+from collections import deque
 
 import numpy as np
 import opuslib
@@ -67,8 +68,14 @@ class Go2WhisperNode(Node):
         self.declare_parameter("min_rms", 800)
         self.declare_parameter("endpoint_silence", 0.6)   # trailing silence (s)
         self.declare_parameter("min_utterance", 0.3)      # ignore shorter (s)
-        self.declare_parameter("max_utterance", 8.0)      # force-flush cap (s)
+        self.declare_parameter("max_utterance", 4.0)      # force-flush cap (s)
         self.declare_parameter("min_text_length", 2)
+        # Require this many consecutive loud frames (20 ms each) to start an
+        # utterance, so brief lidar noise bursts don't trigger it.
+        self.declare_parameter("speech_start_frames", 4)
+        # Drop an utterance if Whisper's no_speech_prob exceeds this. Lidar
+        # noise reads ~0.9; real commands read well below.
+        self.declare_parameter("max_no_speech", 0.7)
 
         # ASR backend / engine.
         self.declare_parameter("backend", "faster")       # "faster" or "openai"
@@ -99,6 +106,8 @@ class Go2WhisperNode(Node):
         self.min_utterance = float(self.get_parameter("min_utterance").value)
         self.max_utterance = float(self.get_parameter("max_utterance").value)
         self.min_text_length = int(self.get_parameter("min_text_length").value)
+        self.speech_start_frames = int(self.get_parameter("speech_start_frames").value)
+        self.max_no_speech = float(self.get_parameter("max_no_speech").value)
 
         self.backend = self.get_parameter("backend").value
         self.device_param = self.get_parameter("device").value
@@ -251,6 +260,8 @@ class Go2WhisperNode(Node):
         utt_len = 0
         in_speech = False
         silence_ms = 0
+        loud_run = 0
+        pre_roll = deque(maxlen=max(1, self.speech_start_frames))
 
         while self.running:
             try:
@@ -260,24 +271,33 @@ class Go2WhisperNode(Node):
 
             loud = audioop.rms(frame.tobytes(), 2) >= self.min_rms
 
-            if loud:
-                in_speech = True
-                silence_ms = 0
-                utterance.append(frame)
-                utt_len += len(frame)
-            elif in_speech:
-                utterance.append(frame)
-                utt_len += len(frame)
-                silence_ms += self.frame_ms
+            if not in_speech:
+                # Wait for sustained loudness before starting, so a single
+                # noise burst can't open an utterance. Keep a pre-roll so the
+                # word onset isn't clipped once we do start.
+                pre_roll.append(frame)
+                loud_run = loud_run + 1 if loud else 0
+                if loud_run >= self.speech_start_frames:
+                    in_speech = True
+                    silence_ms = 0
+                    utterance = list(pre_roll)
+                    utt_len = sum(len(f) for f in utterance)
+                    pre_roll.clear()
+                continue
 
-            flush = in_speech and (silence_ms >= endpoint_ms or utt_len >= max_samples)
-            if flush:
+            utterance.append(frame)
+            utt_len += len(frame)
+            silence_ms = 0 if loud else silence_ms + self.frame_ms
+
+            if silence_ms >= endpoint_ms or utt_len >= max_samples:
                 if utt_len >= min_samples:
                     self.finalize(np.concatenate(utterance))
                 utterance = []
                 utt_len = 0
                 in_speech = False
                 silence_ms = 0
+                loud_run = 0
+                pre_roll.clear()
 
     def finalize(self, audio48_i16):
         try:
@@ -309,6 +329,10 @@ class Go2WhisperNode(Node):
                     )
                 )
 
+            # Reject what Whisper itself flags as non-speech (lidar noise
+            # reads ~0.9), and anything too short to be a command.
+            if nsp is not None and nsp > self.max_no_speech:
+                return
             if len(text) < self.min_text_length:
                 return
 
