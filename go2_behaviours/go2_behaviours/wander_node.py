@@ -21,7 +21,7 @@ class WanderNode(Node):
         self.cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
 
         self.forward_speed_mps = float(
-            self.declare_parameter("forward_speed_mps", 0.66).value
+            self.declare_parameter("forward_speed_mps", 0.1).value
         )
         self.turn_speed_radps = float(
             self.declare_parameter("turn_speed_radps", 1.26).value
