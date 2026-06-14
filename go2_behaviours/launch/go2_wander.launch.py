@@ -36,14 +36,14 @@ def generate_launch_description():
                 package="go2_behaviours",
                 executable="sport_client_wrapper_node",
                 name="sport_client_wrapper_node",
-                output="log",
+                output="screen",
                 parameters=[params_file],
             ),
             Node(
                 package="go2_utils",
                 executable="cmd_vel_bridge_node",
                 name="cmd_vel_bridge_node",
-                output="log",
+                output="screen",
                 parameters=[cmd_vel_bridge_params_file],
             ),
             Node(
