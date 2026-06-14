@@ -113,9 +113,6 @@ class SafetyMonitorNode(Node):
     def _is_recovery_clear(self, front_range: float) -> bool:
         threshold = self.recovery_clear_threshold_m
 
-        if math.isfinite(front_range) and front_range > threshold:
-            return True
-
         if len(self._recent_front) < self.recovery_window_frames:
             return False
 
@@ -123,8 +120,11 @@ class SafetyMonitorNode(Node):
             if math.isfinite(value) and value < threshold:
                 return False
 
-        inf_count = sum(1 for value in self._recent_front if not math.isfinite(value))
-        return inf_count >= int(self.recovery_window_frames * 0.8)
+        finite = [value for value in self._recent_front if math.isfinite(value)]
+        if finite:
+            return min(finite) > threshold
+
+        return True
 
     def _on_scan(self, scan: LaserScan):
         front_range = self._front_min_range(scan)

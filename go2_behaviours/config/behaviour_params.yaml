@@ -30,7 +30,7 @@ safety_monitor_node:
     clear_threshold_m: 1.2
     front_half_angle_deg: 15.0
     required_blocked_frames: 5
-    required_clear_frames: 30
+    required_clear_frames: 20
     safety_command: sit
     clear_command: rise_sit
     enable_stand_command: true

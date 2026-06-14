@@ -153,11 +153,7 @@ class WanderNode(Node):
         )
 
     def _on_safety(self, msg: Bool):
-        was_active = self._safety_active
         self._safety_active = msg.data
-        if was_active and not msg.data:
-            self.publish_command("balance_stand", force=True)
-            self.set_phase("startup", 0.5)
 
     def _on_wander_pause(self, msg: Bool):
         self._wander_paused = msg.data
