@@ -65,10 +65,10 @@ class WanderNode(Node):
         self.transitions = {
             'sit': [('rise_sit', 0.75), ('sit', 0.25)],
             'rise_sit': [('walk', 0.25), ('turn', 0.25), ('stretch', 0.25), ('bark', 0.25)],
-            'walk': [('walk', 0.2), ('turn', 0.2), ('stretch', 0.2), ('bark', 0.2), ('sit', 0.2)],
-            'turn': [('walk', 0.2), ('turn', 0.2), ('stretch', 0.2), ('bark', 0.2), ('sit', 0.2)],
-            'stretch': [('walk', 0.2), ('turn', 0.2), ('stretch', 0.2), ('bark', 0.2), ('sit', 0.2)],
-            'bark': [('walk', 0.2), ('turn', 0.2), ('stretch', 0.2), ('bark', 0.2), ('sit', 0.2)],
+            'walk': [('walk', 0.2), ('turn', 0.3), ('stretch', 0.1), ('bark', 0.2), ('sit', 0.2)],
+            'turn': [('walk', 0.3), ('turn', 0.2), ('stretch', 0.1), ('bark', 0.2), ('sit', 0.2)],
+            'stretch': [('walk', 0.4), ('turn', 0.4),  ('bark', 0.2)],
+            'bark': [('walk', 0.3), ('turn', 0.2), ('stretch', 0.1), ('bark', 0.2), ('sit', 0.2)],
         }
 
         # Tick timer
