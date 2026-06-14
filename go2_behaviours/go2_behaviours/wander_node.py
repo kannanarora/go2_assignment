@@ -94,7 +94,7 @@ class WanderNode(Node):
             scan_qos,
         )
 
-        # walk, turn, sit, stretch, bark
+        # Actions: walk, turn, sit, stretch, bark, rise_sit
 
         # TODO take bark out of this?
 
@@ -143,17 +143,18 @@ class WanderNode(Node):
         if self.phase == "startup":
             self.start_random_turn()
 
-        # weighted random choice from transitions[current]
-        options = self.transitions.get(current, [(current, 1.0)])
+        # Weighted random choice from transitions[current]
+        options = self.transitions.get(self.phase, [(self.phase, 1.0)])
         states, weights = zip(*options)
         total = sum(weights)
 
         if total <= 0:
             return states[0]
 
-        # normalize and choose
+        # Normalize probabilities and choose
         probs = [w / total for w in weights]
         state = random.choices(states, probs, k=1)[0]
+        self.get_logger().info('Next chosen state: {state}')
 
         if self.phase == "turn":
             self.start_random_walk()
@@ -170,21 +171,28 @@ class WanderNode(Node):
         else:
             self.start_random_turn()
 
-    def start_sit():
-        # TODO
-        duration = angle_rad / max(abs(self.trick_duration), 0.01)
+    def start_sit(self):
+        self.publish_command('sit', force=True)
+        duration = max(abs(self.trick_duration), 0.01)
         self.set_phase("sit", duration)
         return
 
-    def start_rise_sit():
-        # TODO
-        duration = angle_rad / max(abs(self.trick_duration), 0.01)
+    def start_rise_sit(self):
+        self.publish_command('rise_sit', force=True)
+        duration = max(abs(self.trick_duration), 0.01)
         self.set_phase("rise_sit", duration)
         return
 
-    def start_bark():
+    def start_stretch(self):
         # TODO
-        duration = angle_rad / max(abs(self.trick_duration), 0.01)
+        self.get_logger().info('TODO PUBLISH STRETCH')
+        self.set_phase("rise_sit", duration)
+        return
+
+    def start_bark(self):
+        # TODO
+        self.get_logger().info('TODO PUBLISH BARK')
+        duration = max(abs(self.trick_duration), 0.01)
         self.set_phase("bark", duration)
         return
 
@@ -205,18 +213,6 @@ class WanderNode(Node):
 
     def current_turn_speed(self) -> float:
         return self.turn_speed_radps
-
-    def clearer_turn_direction(self) -> float:
-        left = self.sector_min(self.side_sector_min_deg, self.side_sector_max_deg)
-        right = self.sector_min(-self.side_sector_max_deg, -self.side_sector_min_deg)
-
-        if math.isfinite(left) and math.isfinite(right):
-            return 1.0 if left >= right else -1.0
-        if math.isfinite(left):
-            return 1.0
-        if math.isfinite(right):
-            return -1.0
-        return random.choice([-1.0, 1.0])
 
     # Publish a twist movement command
     def publish_move(self, vx: float, vyaw: float):
