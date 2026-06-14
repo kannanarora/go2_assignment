@@ -5,14 +5,7 @@ Decode the Go2 audio stream, segment it into utterances with energy-based
 VAD endpointing, denoise each utterance with DeepFilterNet, and transcribe
 with faster-whisper.
 
-Instead of fixed time windows (which slice words mid-command), this waits
-for you to speak and pause, then transcribes the whole utterance once.
-
-Expected input:
-  /audiosender  unitree_go/msg/AudioData  (Opus, 48 kHz, stereo, 960/packet)
-
-Output:
-  /go2/whisper/text  std_msgs/msg/String
+waits for you to speak and pause, then transcribes the whole utterance once
 """
 
 import audioop
@@ -34,7 +27,7 @@ class DeepFilterDenoiser:
     """DeepFilterNet wrapper. Cleans mono 48 kHz audio.
 
     atten_lim_db caps the maximum attenuation so consonants survive
-    (12 dB worked well against the Go2 lidar noise).
+    (12 dB worked well against the Go2 lidar noise)
     """
 
     def __init__(self, atten_lim_db=None):
@@ -55,10 +48,10 @@ class DeepFilterDenoiser:
 
 class SileroVad:
     """Silero VAD wrapper. Neural speech/non-speech detector - far more
-    robust against steady broadband noise (lidar) than an RMS threshold.
+    robust against steady broadband noise(lidar) than an RMS threshold which was experimented with earlier
 
     Silero v5 needs exactly 512-sample windows at 16 kHz, so feed it via
-    speech_prob() one window at a time.
+    speech_prob() one window at a time
     """
 
     WINDOW = 512  # samples at 16 kHz (~32 ms)
@@ -182,8 +175,7 @@ class Go2WhisperNode(Node):
         )
 
         self.audio_queue = queue.Queue()
-        # Finished utterances wait here for transcription, so the slow
-        # transcribe step never blocks the VAD thread from listening.
+        # Finished utterances wait here for transcription, so the slow transcribe step never blocks the VAD thread from listening
         self.utterance_queue = queue.Queue()
         self.running = True
 
@@ -295,8 +287,7 @@ class Go2WhisperNode(Node):
             self.get_logger().warn("Opus decode failed: %s" % exc)
             return
 
-        # Stereo 48 kHz int16 -> mono 48 kHz int16. Stay at 48 kHz so the
-        # denoiser sees the full band; downsample after enhancement.
+        # Stereo 48 kHz int16 -> mono 48 kHz int16. Stay at 48 kHz so the denoiser sees the full band; downsample after enhancement
         pcm48_mono = audioop.tomono(pcm48_stereo, 2, 0.5, 0.5)
         self.audio_queue.put(np.frombuffer(pcm48_mono, dtype=np.int16))
 
@@ -324,8 +315,7 @@ class Go2WhisperNode(Node):
         pre_roll = deque(maxlen=max(1, self.pre_roll_ms // self.frame_ms))
 
         # Silero VAD runs on a continuous 16 kHz stream in 512-sample windows;
-        # keep a resampler state and a buffer, and reuse the latest decision
-        # for each 20 ms frame.
+        # keep a resampler state and a buffer, and reuse the latest decision for each 20 ms frame.
         vad_state = None
         vad_buf = np.zeros(0, dtype=np.int16)
         vad_speech = False
@@ -352,9 +342,8 @@ class Go2WhisperNode(Node):
                 loud = audioop.rms(frame.tobytes(), 2) >= self.min_rms
 
             if not in_speech:
-                # Wait for sustained loudness before starting, so a single
-                # noise burst can't open an utterance. Keep a pre-roll so the
-                # word onset isn't clipped once we do start.
+                # Wait for sustained loudness before starting, so a single noise burst can't open an utterance
+                # Keep a pre-roll so the word onset isn't clipped once we do start
                 pre_roll.append(frame)
                 loud_run = loud_run + 1 if loud else 0
                 if loud_run >= self.speech_start_frames:
@@ -371,7 +360,7 @@ class Go2WhisperNode(Node):
 
             if silence_ms >= endpoint_ms or utt_len >= max_samples:
                 if utt_len >= min_samples:
-                    # Hand off to the transcribe thread; never block listening.
+                    # Hand off to the transcribe thread, never block listening
                     self.utterance_queue.put(np.concatenate(utterance))
                 utterance = []
                 utt_len = 0
@@ -427,8 +416,7 @@ class Go2WhisperNode(Node):
                     )
                 )
 
-            # Reject what Whisper itself flags as non-speech (lidar noise
-            # reads ~0.9), and anything too short to be a command.
+            # Reject what Whisper itself flags as non-speech (lidar noise reads ~0.9), and anything too short to be a command
             if nsp is not None and nsp > self.max_no_speech:
                 return
             if len(text) < self.min_text_length:
