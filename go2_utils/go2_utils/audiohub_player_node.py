@@ -46,7 +46,7 @@ class AudioHubPlayerNode(Node):
         self._file_name = self.get_parameter('file_name').value
 
         # Listen to the /bark topic
-        self._trigger_topic = self.get_parameter('/bark').value
+        self._trigger_topic = self.get_parameter('trigger_topic').value
 
         # Callback Groups: We separate the trigger and response listeners 
         # so they can run on parallel threads without blocking each other.
