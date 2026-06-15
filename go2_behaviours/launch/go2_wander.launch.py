@@ -47,18 +47,17 @@ def generate_launch_description():
                 parameters=[cmd_vel_bridge_params_file],
             ),
             Node(
-                package="go2_utils",
-                executable="audiohub_player_node",
-                name="audiohub_player_node",
-                output="screen",
-                parameters=[params_file],
-            ),
-            Node(
                 package="go2_behaviours",
                 executable="wander_node",
                 name="wander_node",
                 output="screen",
                 parameters=[params_file],
+            ),
+            Node(
+                package="go2_behaviours",
+                executable="bark_node",
+                name="bark_node",
+                output="screen",
             ),
         ]
     )
