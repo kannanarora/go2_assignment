@@ -8,7 +8,8 @@ TEST (from terminal, robot must be connected):
   ros2 topic pub /trigger_behaviour std_msgs/msg/String "data: 'stand'"
   ros2 topic pub /trigger_behaviour std_msgs/msg/String "data: 'lie_down'"
 """
-
+# TODO listen to spots api request topic
+# TODO keep track of robot state (don't send further sit commands when in sitting state)
 import json
 
 import rclpy
