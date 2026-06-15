@@ -9,6 +9,10 @@ from rclpy.node import Node
 from std_msgs.msg import String
 from go2_interfaces.msg import Go2Command
 
+# TODO just do the last wonder command as a base
+# however, if switching from a different command, it should only perform the command if it's fresh
+
+
 class MuxNode(Node):
     def __init__(self):
         super().__init__("mux_node")
@@ -31,8 +35,10 @@ class MuxNode(Node):
         self.state = {
             'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 0.5}, # Priority 1 (Highest)
             'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 0.2}, # Priority 2
-            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 0.25}  # Priority 3 (Lowest)
+            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 5}  # Priority 3 (Lowest)
         }
+        self.current_state = 'none'
+        self.wander_begin_timeout = 0.5
         
         # NODE SUBSCRIPTIONS
         self.wander_sub = self.create_subscription(
@@ -61,20 +67,38 @@ class MuxNode(Node):
     def publish_highest_priority(self):
         now = self.get_clock().now()
         selected_msg = Go2Command() # Defaults nil which stops go2
-        active_source = "None"
 
         # Check in order of highest priority to lowest
         if self.is_active('avoid', now):
             selected_msg = self.state['avoid']['msg']
-            active_source = "Avoid"
+            self.current_state = 'avoid'
         elif self.is_active('trick', now):
             selected_msg = self.state['trick']['msg']
-            active_source = "Trick"
-        elif self.is_active('wander', now):
+            self.current_state = 'trick'
+        elif self.is_active('wander', now) and self.should_wonder():
             selected_msg = self.state['wander']['msg']
-            active_source = "Wander"
-
+            self.current_state = 'wander'
+        else:
+            self.current_state = 'none'
+        
         self.publish_command(selected_msg)
+
+    # Only begin performing wonder if command is fresh
+    def should_wander(self):
+        if self.current_state == 'wander':
+            return True
+        
+        last_time = self.state['wander']['time']
+        if last_time is None:
+            return False
+            
+        now = self.get_clock().now()
+        elapsed_seconds = (now - last_time).nanoseconds / 1e9
+        
+        if elapsed_seconds < self.wander_begin_timeout:
+            return True
+
+        return False
 
     # If twist publish to cmd_vel
     # if trick publish directly to trick
