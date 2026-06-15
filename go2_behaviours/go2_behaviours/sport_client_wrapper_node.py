@@ -8,8 +8,7 @@ TEST (from terminal, robot must be connected):
   ros2 topic pub /trigger_behaviour std_msgs/msg/String "data: 'stand'"
   ros2 topic pub /trigger_behaviour std_msgs/msg/String "data: 'lie_down'"
 """
-# TODO listen to spots api request topic
-# TODO keep track of robot state (don't send further sit commands when in sitting state)
+
 import json
 
 import rclpy
@@ -27,10 +26,12 @@ SPORT_API_ID_RISESIT        = 1010
 SPORT_API_ID_HELLO          = 1016  # wave hello
 SPORT_API_ID_BALANCE_STAND  = 1002
 SPORT_API_ID_SWITCH_JOYSTICK = 1027
+SPORT_API_ID_STRETCH = 1017
 SPORT_API_ID_FREEWALK = 2045
-SPORT_API_ID_DANCE1 = 1022          # Dance1 routine (Dance2 is 1023)
+SPORT_API_ID_FREEWALK_AVOID = 2048
 
-
+# TODO listen to spots api request topic
+# TODO keep track of robot state (don't send further sit commands when in sitting state)
 class SportClientWrapperNode(Node):
     def __init__(self):
         super().__init__('sport_client_wrapper_node')
@@ -62,16 +63,14 @@ class SportClientWrapperNode(Node):
         self.command_handlers = {
             'stand': lambda: self.send_request(SPORT_API_ID_STAND_UP),
             'balance_stand': lambda: self.send_request(SPORT_API_ID_BALANCE_STAND),
+            'stretch': lambda: self.send_request(SPORT_API_ID_STRETCH),
             'free_walk': lambda: self.send_request(SPORT_API_ID_FREEWALK),
+            'free_avoid': lambda: self.send_request(SPORT_API_ID_FREEWALK_AVOID),
             'lie_down': lambda: self.send_request(SPORT_API_ID_STAND_DOWN),
             'stop': lambda: self.send_request(SPORT_API_ID_STOP_MOVE),
             'sit': lambda: self.send_request(SPORT_API_ID_SIT),
             'rise_sit': lambda: self.send_request(SPORT_API_ID_RISESIT),
             'hello': lambda: self.send_request(SPORT_API_ID_HELLO),
-            'dance': lambda: self.send_request(SPORT_API_ID_DANCE1),
-            'walk': lambda: self.send_move_request(vx=0.5, vy=0.0, vyaw=0.0),
-            'turn_left': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=1),
-            'turn_right': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=-1),
             'joystick_on': lambda: self.send_request(
                 SPORT_API_ID_SWITCH_JOYSTICK, {'data': True}
             ),
