@@ -55,6 +55,13 @@ def generate_launch_description():
             ),
             Node(
                 package="go2_behaviours",
+                executable="obstacle_avoid_node",
+                name="obstacle_avoid_node",
+                output="screen",
+                parameters=[params_file],
+            ),
+            Node(
+                package="go2_behaviours",
                 executable="bark_node",
                 name="bark_node",
                 output="screen",
