@@ -1,6 +1,8 @@
 import os
 
 from ament_index_python.packages import get_package_share_directory
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch import LaunchDescription
 from launch_ros.actions import Node
 
@@ -17,9 +19,17 @@ def generate_launch_description():
         "config",
         "person_tracker_params.yaml",
     )
+    utils_launch = os.path.join(
+        share_dir,
+        "launch",
+        "utils.launch.py",
+    )
 
     return LaunchDescription(
         [
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(utils_launch),
+            ),
             Node(
                 package="go2_utils",
                 executable="gstreamer_camera_node",

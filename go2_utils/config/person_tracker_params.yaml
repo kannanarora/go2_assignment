@@ -17,7 +17,9 @@ person_tracker_node:
     debug_jpeg_quality: 70
     debug_log_interval_s: 2.0
     camera_horizontal_fov_deg: 90.0
-    scan_sector_half_angle_deg: 5.0
+    scan_sector_half_angle_deg: 15.0
     nearby_threshold_m: 1.5
+    visual_nearby_fallback: true
+    visual_nearby_bbox_height_ratio: 0.45
     detection_timeout_s: 0.7
     no_detection_publish_hz: 2.0

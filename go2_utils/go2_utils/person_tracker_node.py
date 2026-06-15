@@ -66,10 +66,16 @@ class PersonTrackerNode(Node):
             self.declare_parameter("camera_horizontal_fov_deg", 90.0).value
         )
         self.scan_sector_half_angle_deg = float(
-            self.declare_parameter("scan_sector_half_angle_deg", 5.0).value
+            self.declare_parameter("scan_sector_half_angle_deg", 15.0).value
         )
         self.nearby_threshold_m = float(
             self.declare_parameter("nearby_threshold_m", 1.5).value
+        )
+        self.visual_nearby_fallback = bool(
+            self.declare_parameter("visual_nearby_fallback", True).value
+        )
+        self.visual_nearby_bbox_height_ratio = float(
+            self.declare_parameter("visual_nearby_bbox_height_ratio", 0.45).value
         )
         self.detection_timeout_s = float(
             self.declare_parameter("detection_timeout_s", 0.7).value
@@ -177,7 +183,8 @@ class PersonTrackerNode(Node):
         if detection is None:
             self.maybe_publish_debug_image(image, msg.header, None)
             self.log_detection_debug(image.shape)
-            self.publish_not_visible(msg.header)
+            if not self.last_visible:
+                self.publish_not_visible(msg.header)
             return
 
         x, y, w, h, confidence = detection
@@ -187,7 +194,15 @@ class PersonTrackerNode(Node):
         bearing = self.image_x_to_bearing(image_x, image.shape[1])
         distance = self.scan_distance_at_bearing(bearing)
         distance_valid = math.isfinite(distance)
-        nearby = distance_valid and distance <= self.nearby_threshold_m
+        visual_nearby = self.is_visually_nearby(h, image.shape[0])
+        nearby = (
+            (distance_valid and distance <= self.nearby_threshold_m)
+            or (
+                self.visual_nearby_fallback
+                and not distance_valid
+                and visual_nearby
+            )
+        )
 
         out = PersonTrack()
         out.header = msg.header
@@ -248,9 +263,19 @@ class PersonTrackerNode(Node):
         if len(indices) == 0:
             return None
 
-        best_index = int(np.array(indices).flatten()[0])
+        candidate_indices = [int(index) for index in np.array(indices).flatten()]
+        best_index = max(candidate_indices, key=lambda index: scores[index])
         x, y, w, h = boxes[best_index]
         return x, y, w, h, scores[best_index]
+
+    def is_visually_nearby(self, bbox_height_px: float, image_height_px: int) -> bool:
+        if image_height_px <= 0:
+            return False
+
+        return (
+            float(bbox_height_px) / float(image_height_px)
+            >= self.visual_nearby_bbox_height_ratio
+        )
 
     def make_blob(self, image):
         height, width = image.shape[:2]
