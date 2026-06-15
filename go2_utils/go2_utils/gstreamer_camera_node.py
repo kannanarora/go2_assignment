@@ -2,6 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image
 
 
@@ -60,11 +61,15 @@ class GStreamerCameraNode(Node):
         self.last_raw_publish_time = 0.0
         self.last_compressed_publish_time = 0.0
 
-        self.image_pub = self.create_publisher(Image, self.output_topic, 10)
+        self.image_pub = self.create_publisher(
+            Image,
+            self.output_topic,
+            qos_profile_sensor_data,
+        )
         self.compressed_pub = self.create_publisher(
             CompressedImage,
             self.compressed_output_topic,
-            10,
+            qos_profile_sensor_data,
         )
 
         self.open_pipeline()
