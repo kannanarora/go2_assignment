@@ -28,6 +28,7 @@ setup(
             'behaviour_planner_node = go2_behaviours.behaviour_planner_node:main',
             'front_safety_sit_node = go2_behaviours.front_safety_sit_node:main',
             'wander_node = go2_behaviours.wander_node:main',
+            'approach_person_node = go2_behaviours.approach_person_node:main',
             'sit_stand_loop_node = go2_behaviours.sit_stand_loop_node:main',
             'audiohub_player_node = go2_behaviours.audiohub_player_node:main',
             'voice_command_mapper_node = go2_behaviours.voice_command_mapper_node:main',
