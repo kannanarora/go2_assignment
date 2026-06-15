@@ -34,7 +34,7 @@ setup(
             "webrtc_camera_node = go2_utils.webrtc_camera_node:main",
             "person_tracker_node = go2_utils.person_tracker_node:main",
             "audiohub_player_node = go2_utils.audiohub_player_node:main",
-            "whisper_node = go2_utils.whisper_node:main",
+            "whisper_node = go2_utils.go2_whisper_node:main",
         ],
     },
 )
