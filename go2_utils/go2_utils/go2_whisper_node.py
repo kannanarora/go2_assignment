@@ -56,10 +56,12 @@ class SileroVad:
 
     WINDOW = 512  # samples at 16 kHz (~32 ms)
 
-    def __init__(self, threshold=0.5):
+    def __init__(self, threshold=0.5, use_onnx=False):
         from silero_vad import load_silero_vad
 
-        self.model = load_silero_vad()
+        # The ONNX runtime path is much faster than torch on CPUs without
+        # NNPACK (e.g. the Jetson), avoiding the VAD-thread bottleneck.
+        self.model = load_silero_vad(onnx=use_onnx)
         self.threshold = threshold
 
     def speech_prob(self, window16_i16):
@@ -85,6 +87,7 @@ class Go2WhisperNode(Node):
         # Lidar noise scores ~0.07; real speech 0.3+, so 0.3 separates them
         # with margin (0.5 is tuned for clean audio and can miss buried speech).
         self.declare_parameter("vad_threshold", 0.3)   # silero speech prob
+        self.declare_parameter("vad_onnx", True)       # ONNX = faster on Jetson CPU
         # RMS fallback only. min_rms must sit ABOVE the lidar floor (~600).
         self.declare_parameter("min_rms", 800)
         self.declare_parameter("endpoint_silence", 0.6)   # trailing silence (s)
@@ -130,6 +133,7 @@ class Go2WhisperNode(Node):
 
         self.use_silero = bool(self.get_parameter("use_silero").value)
         self.vad_threshold = float(self.get_parameter("vad_threshold").value)
+        self.vad_onnx = bool(self.get_parameter("vad_onnx").value)
         self.min_rms = int(self.get_parameter("min_rms").value)
         self.endpoint_silence = float(self.get_parameter("endpoint_silence").value)
         self.min_utterance = float(self.get_parameter("min_utterance").value)
@@ -187,9 +191,10 @@ class Go2WhisperNode(Node):
         self.vad = None
         if self.use_silero:
             try:
-                self.vad = SileroVad(self.vad_threshold)
+                self.vad = SileroVad(self.vad_threshold, use_onnx=self.vad_onnx)
                 self.get_logger().info(
-                    "Using Silero VAD (threshold=%.2f)" % self.vad_threshold
+                    "Using Silero VAD (%s, threshold=%.2f)"
+                    % ("onnx" if self.vad_onnx else "torch", self.vad_threshold)
                 )
             except Exception as exc:
                 self.get_logger().warn(
