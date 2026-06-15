@@ -5,9 +5,9 @@ import random
 import time
 
 import rclpy
-from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
+from go2_interfaces.msg import Go2Command
 
 
 class WanderNode(Node):
@@ -16,9 +16,9 @@ class WanderNode(Node):
 
         # All parameters
         self.trigger_topic = self.declare_parameter(
-            "trigger_topic", "/trigger_behaviour"
+            "trigger_topic", "/wander_cmd"
         ).value
-        self.cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
+        
         self.bark_topic = self.declare_parameter("bark_topic", "/bark").value
 
         self.forward_speed_mps = float(
@@ -53,8 +53,7 @@ class WanderNode(Node):
         self.turn_direction = 1.0
         self._last_command = None
         self._last_log_time = 0.0
-        self.cmd_pub = self.create_publisher(String, self.trigger_topic, 10)
-        self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
+        self.cmd_pub = self.create_publisher(Go2Command, self.trigger_topic, 10)
         self.bark_pub = self.create_publisher(String, self.bark_topic, 10)
 
         # Actions: walk, turn, sit, stretch, bark, rise_sit
@@ -79,11 +78,7 @@ class WanderNode(Node):
             self.publish_command(self.startup_command, force=True)
 
         self.get_logger().info(
-            "WanderNode publishing velocity to %s, commands to %s"
-            % (
-                self.cmd_vel_topic,
-                self.trigger_topic
-            )
+            "WanderNode publishing Unified Go2Commands to %s" % (self.trigger_topic)
         )
 
     def tick(self):
@@ -152,8 +147,6 @@ class WanderNode(Node):
         return
 
     def start_bark(self):
-        msg = String()
-        msg.data = "bark"
         self.publish_command('bark', force=True)
         
         self.get_logger().info('PUBLISHED BARK')
@@ -181,21 +174,33 @@ class WanderNode(Node):
     def current_turn_speed(self) -> float:
         return self.turn_speed_radps
 
-    # Publish a twist movement command
+    # Publish a twist movement command using Go2Command
     def publish_move(self, vx: float, vyaw: float):
-        msg = Twist()
-        msg.linear.x = float(vx)
-        msg.linear.y = 0.0
-        msg.angular.z = float(vyaw)
-        self.cmd_vel_pub.publish(msg)
+        msg = Go2Command()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.command_type = Go2Command.MOVE
+        
+        # Populate the nested Twist message
+        msg.twist_command.linear.x = float(vx)
+        msg.twist_command.linear.y = 0.0
+        msg.twist_command.linear.z = 0.0
+        
+        msg.twist_command.angular.x = 0.0
+        msg.twist_command.angular.y = 0.0
+        msg.twist_command.angular.z = float(vyaw)
+        
+        self.cmd_pub.publish(msg)
 
-    # Publish a non-move commands (startup, sit, bark, stretch)
+    # Publish a non-move commands (startup, sit, bark, stretch) using Go2Command
     def publish_command(self, command: str, force: bool = False):
         if not force and command == self._last_command:
             return
 
-        msg = String()
-        msg.data = command
+        msg = Go2Command()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.command_type = Go2Command.TRICK
+        msg.trick_name = command
+        
         self.cmd_pub.publish(msg)
         self._last_command = command
 
