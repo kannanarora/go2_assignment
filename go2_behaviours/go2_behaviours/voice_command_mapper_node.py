@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 
 """
-Map Whisper transcriptions to robot behaviour
+Map Whisper transcriptions to robot behaviour ie. bridges the speech-to-text output to the behaviour commands
 
-Bridges the speech-to-text output to the behaviour commands
+  /go2/whisper/text  (std_msgs/String, free text ex. "sit down")-> keyword match (then fuzzy fallback) -> token ex. "sit"
+      /trigger_behaviour (std_msgs/String, token consumed by sport_client_wrapper_node)
 
-  /go2/whisper/text  (std_msgs/String, free text e.g. "sit down")
-    -> keyword match (then fuzzy fallback) -> token e.g. "sit"
-  /trigger_behaviour (std_msgs/String, token consumed by sport_client_wrapper_node)
-
-Matching is keyword-first; if no keyword is found, a conservative fuzzy
+Matching is keyword-first, if no keyword is found, a conservative fuzzy
 fallback rescues near-misses on short words (e.g. "six"/"sid" -> "sit").
 """
 
@@ -21,11 +18,6 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 
-# Tokens handled by sport_client_wrapper_node. Each tuple lists the spoken
-# forms that map to it, including known Whisper misrecognitions (e.g. "six",
-# "sid" for "sit") so they're caught by exact match rather than risky fuzzy
-# guessing. Keep aliases distinctive - avoid common words that could appear
-# in normal speech.
 COMMAND_RULES = [
     (("turn left",), "turn_left"),
     (("turn right",), "turn_right"),
@@ -38,8 +30,7 @@ COMMAND_RULES = [
     (("come", "walk", "forward"), "walk"),
 ]
 
-# Single-word keywords used for the fuzzy fallback (phrases are skipped -
-# they only ever match exactly).
+# Single word keywords used for the fuzzy fallback (phrases are skipped - they only ever match exactly)
 FUZZY_KEYWORDS = [
     (kw, token)
     for keywords, token in COMMAND_RULES
@@ -54,16 +45,12 @@ def _normalize(text):
 
 
 def match_command(text, fuzzy_threshold=0.8, fuzzy_margin=0.1):
-    """Match a transcription to a behaviour token, with reasoning.
-
-    Returns (token, detail). token is None when nothing matches. detail is a
-    short human-readable string explaining the decision (which keyword/alias
-    hit, or the best fuzzy score and why it was rejected) for logging.
+    """Match a transcription to a behaviour token, with reasoning
 
     Keyword (substring) match first. If nothing matches, fall back to the
     closest single-word keyword by character similarity, but only accept it
     when it clears fuzzy_threshold AND beats the runner-up token by
-    fuzzy_margin (so ambiguous matches are rejected rather than guessed).
+    fuzzy_margin (so ambiguous matches are rejected rather than guessed)
     """
     normalized = _normalize(text)
     if not normalized:
