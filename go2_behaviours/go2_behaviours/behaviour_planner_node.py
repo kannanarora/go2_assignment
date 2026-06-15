@@ -6,7 +6,7 @@ import math
 import time
 
 import rclpy
-from rclpy.node import Node
+from rclpy.node import Node as RosNode
 from rclpy.qos import (
     DurabilityPolicy,
     HistoryPolicy,
@@ -20,7 +20,7 @@ from go2_behaviours.behaviour_tree import (
     Action,
     Blackboard,
     Condition,
-    Node,
+    Node as BTNode,
     Selector,
     Sequence,
     Status,
@@ -71,7 +71,7 @@ def _idle(bb: Blackboard) -> Status:
     return Status.FAILURE
 
 
-def build_planner_tree() -> Node:
+def build_planner_tree() -> BTNode:
     return Selector(
         'planner_root',
         [
@@ -91,7 +91,7 @@ def build_planner_tree() -> Node:
     )
 
 
-class BehaviourPlannerNode(Node):
+class BehaviourPlannerNode(RosNode):
 
     def __init__(self):
         super().__init__('behaviour_planner_node')

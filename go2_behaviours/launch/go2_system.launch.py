@@ -48,7 +48,9 @@ def generate_launch_description():
             parameters=[{
                 'audio_topic': '/audiosender',
                 'text_topic': '/go2/whisper/text',
-                'model_name': 'tiny.en',
+                'model_name': 'base.en',
+                'min_rms': 500,
+                'initial_prompt': 'sit stand hello stop walk bark',
             }],
         ),
         Node(
