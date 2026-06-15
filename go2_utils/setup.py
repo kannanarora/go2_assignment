@@ -14,6 +14,7 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         (os.path.join("share", package_name, "launch"), glob("launch/*.launch.py")),
         (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
+        (os.path.join("share", package_name, "sounds"), glob("sounds/*")),
         (os.path.join("share", package_name, "urdf"), glob("urdf/*.urdf")),
         (os.path.join("share", package_name, "urdf", "dae"), glob("urdf/dae/*")),
     ],
@@ -28,11 +29,9 @@ setup(
         "console_scripts": [
             "odom_to_tf_bridge = go2_utils.odom_to_tf_bridge:main",
             "cloud_throttle = go2_utils.cloud_throttle:main",
-            "front_scan_logger = go2_utils.front_scan_logger:main",
+            "cmd_vel_bridge_node = go2_utils.cmd_vel_bridge_node:main",
+            "audiohub_player_node = go2_utils.audiohub_player_node:main",
             "go2_whisper_node = go2_utils.go2_whisper_node:main",
-            "audio_dump_node = go2_utils.audio_dump_node:main",
-            "go2_deepfilter_test_node = go2_utils.go2_deepfilter_test_node:main",
-            "go2_faster_whisper_test_node = go2_utils.go2_faster_whisper_test_node:main",
         ],
     },
 )

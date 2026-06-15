@@ -10,6 +10,7 @@ TEST (from terminal, robot must be connected):
 """
 
 import json
+
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -20,7 +21,6 @@ from unitree_api.msg import Request
 SPORT_API_ID_STAND_UP      = 1004
 SPORT_API_ID_STAND_DOWN    = 1005   # lie down / safe position
 SPORT_API_ID_STOP_MOVE     = 1003
-SPORT_API_ID_MOVE          = 1008   # walk: needs vx, vy, vyaw params
 SPORT_API_ID_SIT            = 1009
 SPORT_API_ID_RISESIT        = 1010
 SPORT_API_ID_HELLO          = 1016  # wave hello
@@ -34,8 +34,12 @@ class SportClientWrapperNode(Node):
     def __init__(self):
         super().__init__('sport_client_wrapper_node')
 
-        self.trigger_topic = '/trigger_behaviour'
-        self.request_topic = '/api/sport/request'
+        self.trigger_topic = self.declare_parameter(
+            'trigger_topic', '/trigger_behaviour'
+        ).value
+        self.request_topic = self.declare_parameter(
+            'request_topic', '/api/sport/request'
+        ).value
 
         # SUBSCRIBER: listens for behaviour commands from other nodes
         # Any node in the system can send a string here to make the robot move
@@ -68,10 +72,10 @@ class SportClientWrapperNode(Node):
             'turn_left': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=1),
             'turn_right': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=-1),
             'joystick_on': lambda: self.send_request(
-                SPORT_API_ID_SWITCH_JOYSTICK, {'flag': True}
+                SPORT_API_ID_SWITCH_JOYSTICK, {'data': True}
             ),
             'joystick_off': lambda: self.send_request(
-                SPORT_API_ID_SWITCH_JOYSTICK, {'flag': False}
+                SPORT_API_ID_SWITCH_JOYSTICK, {'data': False}
             ),
         }
 
@@ -85,24 +89,8 @@ class SportClientWrapperNode(Node):
         """
         raw_command = msg.data.strip()
         command = raw_command.lower()
-        self.get_logger().info(f'Received command: "{raw_command}"')
 
-        if command.startswith('move '):
-            parts = raw_command.split()
-            if len(parts) == 4:
-                try:
-                    vx = float(parts[1])
-                    vy = float(parts[2])
-                    vyaw = float(parts[3])
-                    self.send_move_request(vx=vx, vy=vy, vyaw=vyaw)
-                    return
-                except ValueError:
-                    self.get_logger().warn(
-                        'Invalid move parameters: "%s"' % raw_command
-                    )
-                    return
-            self.get_logger().warn('Move command must be: move vx vy vyaw')
-            return
+        self.get_logger().info(f'Received command: "{raw_command}"')
 
         handler = self.command_handlers.get(command)
         if handler is None:
@@ -123,17 +111,12 @@ class SportClientWrapperNode(Node):
             'Sent request: api_id=%d, params=%s' % (api_id, params)
         )
 
-    def send_move_request(self, vx: float, vy: float, vyaw: float):
-        """
-        Sends a Move command with velocity parameters.
-        vx   = forward/backward speed (m/s),  positive = forward
-        vy   = left/right speed (m/s),         positive = left
-        vyaw = rotation speed (rad/s),          positive = turn left
-        """
-        params = {'x': float(vx), 'y': float(vy), 'z': float(vyaw)}
-        self.send_request(SPORT_API_ID_MOVE, params)
-
-    def build_request(self, api_id: int, params: dict = None) -> Request:
+    def build_request(
+        self,
+        api_id: int,
+        params: dict = None,
+        noreply: bool = False,
+    ) -> Request:
         req = Request()
 
         # header fields aligned with the official ROS2 client and CLI examples
@@ -141,7 +124,7 @@ class SportClientWrapperNode(Node):
         req.header.identity.api_id = int(api_id)
         req.header.lease.id = 0
         req.header.policy.priority = 0
-        req.header.policy.noreply = False
+        req.header.policy.noreply = bool(noreply)
 
         req.parameter = json.dumps(params) if params else ''
         req.binary = []
