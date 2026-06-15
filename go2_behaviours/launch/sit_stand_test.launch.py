@@ -11,7 +11,7 @@ def generate_launch_description():
     utils_launch = os.path.join(
         get_package_share_directory("go2_utils"),
         "launch",
-        "go2_utils.launch.py",
+        "utils.launch.py",
     )
 
     return LaunchDescription([

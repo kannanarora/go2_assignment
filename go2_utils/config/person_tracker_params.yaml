@@ -1,0 +1,25 @@
+person_tracker_node:
+  ros__parameters:
+    image_topic: /camera/color/image
+    scan_topic: /front_scan
+    person_track_topic: /person_track
+    person_nearby_topic: /person_nearby
+    debug_image_topic: /person_tracker/debug_image
+    debug_compressed_image_topic: /person_tracker/debug_image/compressed
+    model_path: /home/unitree/ros2_ws/models/yolov5s.onnx
+    input_width: 640
+    input_height: 640
+    min_confidence: 0.10
+    nms_threshold: 0.45
+    process_every_n_frames: 1
+    publish_debug_image: true
+    debug_compressed_max_fps: 3.0
+    debug_jpeg_quality: 70
+    debug_log_interval_s: 2.0
+    camera_horizontal_fov_deg: 90.0
+    scan_sector_half_angle_deg: 15.0
+    nearby_threshold_m: 1.5
+    visual_nearby_fallback: true
+    visual_nearby_bbox_height_ratio: 0.45
+    detection_timeout_s: 0.7
+    no_detection_publish_hz: 2.0

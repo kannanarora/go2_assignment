@@ -1,0 +1,17 @@
+gstreamer_camera_node:
+  ros__parameters:
+    output_topic: /camera/color/image
+    compressed_output_topic: /camera/color/image/compressed
+    frame_id: front_camera
+    multicast_address: 230.1.1.1
+    port: 1720
+    interface: eth0
+    width: 1280
+    height: 720
+    output_width: 640
+    output_height: 360
+    publish_raw: true
+    publish_compressed: true
+    raw_max_fps: 10.0
+    compressed_max_fps: 3.0
+    jpeg_quality: 70
