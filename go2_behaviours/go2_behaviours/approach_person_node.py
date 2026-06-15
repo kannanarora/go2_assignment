@@ -49,6 +49,7 @@ class ApproachPersonNode(Node):
             self.declare_parameter("max_yaw_speed_radps", 0.85).value
         )
         self.yaw_kp = float(self.declare_parameter("yaw_kp", 1.6).value)
+        self.yaw_sign = float(self.declare_parameter("yaw_sign", -1.0).value)
         self.centered_bearing_rad = float(
             self.declare_parameter("centered_bearing_rad", 0.08).value
         )
@@ -88,6 +89,12 @@ class ApproachPersonNode(Node):
             "startup_command", "balance_stand"
         ).value
         self.arrival_command = self.declare_parameter("arrival_command", "sit").value
+        self.arrival_command_repeats = int(
+            self.declare_parameter("arrival_command_repeats", 5).value
+        )
+        self.arrival_command_period_s = float(
+            self.declare_parameter("arrival_command_period_s", 0.25).value
+        )
 
         if self.obstacle_clear_distance_m <= self.obstacle_stop_distance_m:
             self.obstacle_clear_distance_m = self.obstacle_stop_distance_m + 0.2
@@ -100,6 +107,8 @@ class ApproachPersonNode(Node):
         self.avoid_direction = 1.0
         self.avoid_end_time = 0.0
         self.finished = False
+        self.arrival_repeat_count = 0
+        self.next_arrival_command_time = 0.0
         self._last_command = None
         self._last_log_time = 0.0
 
@@ -157,6 +166,11 @@ class ApproachPersonNode(Node):
             return
 
         now = time.monotonic()
+        if self.phase == "arrived":
+            self.publish_move(0.0, 0.0)
+            self.publish_arrival_command_if_due(now)
+            return
+
         scan_stale = self.scan_is_stale(now)
         person_visible = self.person_is_fresh(now)
         front = self.sector_min(-self.front_half_angle_deg, self.front_half_angle_deg)
@@ -202,7 +216,7 @@ class ApproachPersonNode(Node):
     def approach_command(self, person: PersonTrack, front: float):
         bearing = float(person.bearing_rad)
         yaw = self.clamp(
-            self.yaw_kp * bearing,
+            self.yaw_sign * self.yaw_kp * bearing,
             -self.max_yaw_speed_radps,
             self.max_yaw_speed_radps,
         )
@@ -240,12 +254,24 @@ class ApproachPersonNode(Node):
         return float(person.distance_m) <= self.stop_distance_m + self.distance_tolerance_m
 
     def arrive_and_sit(self):
-        self.finished = True
         self.phase = "arrived"
         self.publish_move(0.0, 0.0)
+        self.arrival_repeat_count = 0
+        self.next_arrival_command_time = 0.0
+        self.get_logger().info("Arrived at person; stopping and sending %s" % self.arrival_command)
+
+    def publish_arrival_command_if_due(self, now: float):
+        if self.arrival_repeat_count >= self.arrival_command_repeats:
+            self.finished = True
+            self.get_logger().info("Approach person behaviour complete")
+            return
+
+        if now < self.next_arrival_command_time:
+            return
+
         self.publish_command(self.arrival_command, force=True)
-        self.get_logger().info("Arrived at person; sent %s and stopped" % self.arrival_command)
-        self.timer.cancel()
+        self.arrival_repeat_count += 1
+        self.next_arrival_command_time = now + self.arrival_command_period_s
 
     def start_avoid(self, now: float):
         self.phase = "avoid"

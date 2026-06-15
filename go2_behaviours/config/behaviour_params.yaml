@@ -63,9 +63,10 @@ approach_person_node:
     distance_tolerance_m: 0.08
     forward_speed_mps: 0.25
     min_forward_speed_mps: 0.08
-    search_yaw_speed_radps: 0.45
+    search_yaw_speed_radps: 0.90
     max_yaw_speed_radps: 0.85
     yaw_kp: 1.6
+    yaw_sign: -1.0
     centered_bearing_rad: 0.08
     turn_in_place_bearing_rad: 0.40
     obstacle_stop_distance_m: 0.75
@@ -81,3 +82,5 @@ approach_person_node:
     log_rate_hz: 1.0
     startup_command: balance_stand
     arrival_command: sit
+    arrival_command_repeats: 5
+    arrival_command_period_s: 0.25
