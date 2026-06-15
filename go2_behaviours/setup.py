@@ -31,6 +31,7 @@ setup(
             'sit_stand_loop_node = go2_behaviours.sit_stand_loop_node:main',
             'audiohub_player_node = go2_behaviours.audiohub_player_node:main',
             'voice_command_mapper_node = go2_behaviours.voice_command_mapper_node:main',
+            'bark_node = go2_behaviours.bark_node:main',
         ],
     },
 )

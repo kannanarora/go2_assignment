@@ -30,4 +30,10 @@ def generate_launch_description():
             name="sport_client_wrapper_node",
             output="screen",
         ),
+        Node(
+            package="go2_behaviours",
+            executable="bark_node",
+            name="bark_node",
+            output="screen",
+        ),
     ])
