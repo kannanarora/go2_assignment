@@ -19,13 +19,6 @@ from std_msgs.msg import Bool, String
 
 class BehaviourPlannerNode(Node):
 
-    VOICE_BEHAVIOURS = (
-        ('hello', ('hello', 'hi', 'hey', 'greetings')),
-        ('sit', ('sit', 'sit down', 'take a rest', 'rest')),
-        ('rise_sit', ('stand', 'stand up', 'get up', 'rise')),
-        ('stop', ('stop', 'freeze', 'halt')),
-    )
-
     def __init__(self):
         super().__init__('behaviour_planner_node')
 
@@ -37,7 +30,6 @@ class BehaviourPlannerNode(Node):
         self.declare_parameter('tick_rate_s', 3.0)
         self.declare_parameter('hello_confirm_ticks', 2)
         self.declare_parameter('hello_cooldown_s', 12.0)
-        self.declare_parameter('voice_topic', '/go2/whisper/text')
 
         self.scan_topic = self.get_parameter('scan_topic').value
         self.greeting_min = self.get_parameter('greeting_min_distance').value
@@ -51,7 +43,6 @@ class BehaviourPlannerNode(Node):
         self.hello_cooldown_s = float(
             self.get_parameter('hello_cooldown_s').value
         )
-        voice_topic = self.get_parameter('voice_topic').value
 
         self.safety_active = False
         self.front_range = float('inf')
@@ -68,13 +59,12 @@ class BehaviourPlannerNode(Node):
         self.create_subscription(Bool, '/safety_override', self._on_safety, 10)
         self.create_subscription(
             LaserScan, self.scan_topic, self._on_scan, scan_qos)
-        self.create_subscription(String, voice_topic, self._on_voice, 10)
 
         self.behaviour_pub = self.create_publisher(String, '/requested_behaviour', 10)
         self.timer = self.create_timer(tick_rate, self._decide)
 
         self.get_logger().info(
-            'BehaviourPlannerNode ready — voice + optional LiDAR hello'
+            'BehaviourPlannerNode ready — LiDAR hello'
         )
 
     def _on_safety(self, msg: Bool):
@@ -84,19 +74,6 @@ class BehaviourPlannerNode(Node):
 
     def _on_scan(self, msg: LaserScan):
         self.front_range = self._front_min_range(msg)
-
-    def _on_voice(self, msg: String):
-        if self.safety_active:
-            return
-
-        text = msg.data.strip().lower()
-        if not text:
-            return
-
-        for behaviour, keywords in self.VOICE_BEHAVIOURS:
-            if any(keyword in text for keyword in keywords):
-                self._request_behaviour(behaviour, f'voice="{text[:40]}"')
-                return
 
     def _decide(self):
         if self.safety_active:

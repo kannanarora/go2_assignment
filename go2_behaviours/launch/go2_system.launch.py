@@ -53,6 +53,14 @@ def generate_launch_description():
         ),
         Node(
             package='go2_behaviours',
+            executable='voice_command_mapper_node',
+            name='voice_command_mapper_node',
+            output='screen',
+            condition=IfCondition(enable_voice),
+            parameters=[params_file],
+        ),
+        Node(
+            package='go2_behaviours',
             executable='sport_client_wrapper_node',
             name='sport_client_wrapper_node',
             output='screen',

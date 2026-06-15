@@ -9,8 +9,12 @@ from std_msgs.msg import Bool, String
 
 class BehaviourExecutorNode(Node):
 
-    PAUSE_WANDER = frozenset({'sit', 'stop'})
-    RESUME_WANDER = frozenset({'rise_sit', 'stand', 'balance_stand'})
+    BEHAVIOUR_ALIASES = {
+        'stand': 'rise_sit',
+    }
+
+    PAUSE_WANDER = frozenset({'sit', 'stop', 'lie_down'})
+    RESUME_WANDER = frozenset({'rise_sit', 'stand', 'balance_stand', 'walk', 'free_walk'})
 
     def __init__(self):
         super().__init__('behaviour_executor_node')
@@ -46,6 +50,8 @@ class BehaviourExecutorNode(Node):
         if not behaviour:
             return
 
+        behaviour = self.BEHAVIOUR_ALIASES.get(behaviour, behaviour)
+
         if self.safety_active and behaviour not in self.RESUME_WANDER:
             self.get_logger().warn(
                 f'Safety active — blocking behaviour: {behaviour}')
@@ -57,7 +63,9 @@ class BehaviourExecutorNode(Node):
             self._set_wander_pause(False)
 
         self.get_logger().info(f'Executing behaviour: {behaviour}')
-        self.trigger_pub.publish(msg)
+        out = String()
+        out.data = behaviour
+        self.trigger_pub.publish(out)
 
 
 def main(args=None):

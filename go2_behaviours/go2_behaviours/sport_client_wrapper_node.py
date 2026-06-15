@@ -27,6 +27,8 @@ SPORT_API_ID_HELLO          = 1016  # wave hello
 SPORT_API_ID_BALANCE_STAND  = 1002
 SPORT_API_ID_SWITCH_JOYSTICK = 1027
 SPORT_API_ID_FREEWALK = 2045
+SPORT_API_ID_MOVE = 1008
+SPORT_API_ID_DANCE1 = 1022          # Dance1 routine (Dance2 is 1023)
 
 
 class SportClientWrapperNode(Node):
@@ -66,6 +68,10 @@ class SportClientWrapperNode(Node):
             'sit': lambda: self.send_request(SPORT_API_ID_SIT),
             'rise_sit': lambda: self.send_request(SPORT_API_ID_RISESIT),
             'hello': lambda: self.send_request(SPORT_API_ID_HELLO),
+            'dance': lambda: self.send_request(SPORT_API_ID_DANCE1),
+            'walk': lambda: self.send_move_request(vx=0.5, vy=0.0, vyaw=0.0),
+            'turn_left': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=1),
+            'turn_right': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=-1),
             'joystick_on': lambda: self.send_request(
                 SPORT_API_ID_SWITCH_JOYSTICK, {'data': True}
             ),
@@ -94,13 +100,20 @@ class SportClientWrapperNode(Node):
 
         handler()
 
-    def send_request(self, api_id: int, params: dict = None):
+    def send_move_request(self, vx: float, vy: float, vyaw: float):
+        self.send_request(
+            SPORT_API_ID_MOVE,
+            {'x': float(vx), 'y': float(vy), 'z': float(vyaw)},
+            noreply=True,
+        )
+
+    def send_request(self, api_id: int, params: dict = None, noreply: bool = False):
         """
         Builds a Unitree Request message and publishes it to the robot.
         api_id: the Unitree sport API ID (e.g. 1004 for StandUp)
         params: optional dict of parameters (used for Move commands)
         """
-        req = self.build_request(api_id, params)
+        req = self.build_request(api_id, params, noreply=noreply)
         self.request_pub.publish(req)
         self.get_logger().info(
             'Sent request: api_id=%d, params=%s' % (api_id, params)

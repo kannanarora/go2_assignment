@@ -8,7 +8,13 @@ behaviour_planner_node:
     tick_rate_s: 3.0
     hello_confirm_ticks: 2
     hello_cooldown_s: 12.0
-    voice_topic: /go2/whisper/text
+
+voice_command_mapper_node:
+  ros__parameters:
+    text_topic: /go2/whisper/text
+    requested_behaviour_topic: /requested_behaviour
+    cooldown_sec: 2.0
+    fuzzy_threshold: 0.8
 
 behaviour_executor_node:
   ros__parameters:
