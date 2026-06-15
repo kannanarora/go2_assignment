@@ -154,7 +154,7 @@ class WanderNode(Node):
     def start_bark(self):
         msg = String()
         msg.data = "bark"
-        self.publish_command('bark/speak', force=True)
+        self.publish_command('bark', force=True)
         
         self.get_logger().info('PUBLISHED BARK')
         duration = max(abs(self.trick_duration), 0.01)
