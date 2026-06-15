@@ -30,8 +30,7 @@ SPORT_API_ID_STRETCH = 1017
 SPORT_API_ID_FREEWALK = 2045
 SPORT_API_ID_FREEWALK_AVOID = 2048
 
-# TODO listen to spots api request topic
-# TODO keep track of robot state (don't send further sit commands when in sitting state)
+
 class SportClientWrapperNode(Node):
     def __init__(self):
         super().__init__('sport_client_wrapper_node')
@@ -59,6 +58,8 @@ class SportClientWrapperNode(Node):
             self.request_topic,
             10
         )
+
+        self._request_counter = 0
 
         self.command_handlers = {
             'stand': lambda: self.send_request(SPORT_API_ID_STAND_UP),
@@ -131,12 +132,9 @@ class SportClientWrapperNode(Node):
 
         return req
 
-    # Simple counter so each request gets a unique ID
-    _request_counter = 0
-
     def get_next_id(self) -> int:
-        SportClientWrapperNode._request_counter += 1
-        return SportClientWrapperNode._request_counter
+        self._request_counter += 1
+        return self._request_counter
 
 
 def main(args=None):
