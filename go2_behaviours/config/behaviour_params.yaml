@@ -63,12 +63,16 @@ approach_person_node:
     distance_tolerance_m: 0.08
     forward_speed_mps: 0.25
     min_forward_speed_mps: 0.08
-    search_yaw_speed_radps: 0.90
+    search_yaw_speed_radps: 0.65
     max_yaw_speed_radps: 0.85
     yaw_kp: 1.6
     yaw_sign: -1.0
     centered_bearing_rad: 0.08
     turn_in_place_bearing_rad: 0.40
+    min_person_confidence: 0.40
+    confirm_person_s: 0.35
+    arrival_confirm_s: 0.45
+    arrival_centered_bearing_rad: 0.16
     obstacle_stop_distance_m: 0.75
     obstacle_clear_distance_m: 1.05
     front_half_angle_deg: 18.0

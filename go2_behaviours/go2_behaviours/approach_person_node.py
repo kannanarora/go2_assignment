@@ -56,6 +56,18 @@ class ApproachPersonNode(Node):
         self.turn_in_place_bearing_rad = float(
             self.declare_parameter("turn_in_place_bearing_rad", 0.40).value
         )
+        self.min_person_confidence = float(
+            self.declare_parameter("min_person_confidence", 0.40).value
+        )
+        self.confirm_person_s = float(
+            self.declare_parameter("confirm_person_s", 0.35).value
+        )
+        self.arrival_confirm_s = float(
+            self.declare_parameter("arrival_confirm_s", 0.45).value
+        )
+        self.arrival_centered_bearing_rad = float(
+            self.declare_parameter("arrival_centered_bearing_rad", 0.16).value
+        )
 
         self.obstacle_stop_distance_m = float(
             self.declare_parameter("obstacle_stop_distance_m", 0.75).value
@@ -101,6 +113,8 @@ class ApproachPersonNode(Node):
 
         self.latest_person = None
         self.latest_person_time = 0.0
+        self.person_seen_since = 0.0
+        self.arrival_candidate_since = 0.0
         self.latest_scan = None
         self.latest_scan_time = 0.0
         self.phase = "search"
@@ -153,8 +167,15 @@ class ApproachPersonNode(Node):
         if not msg.visible:
             return
 
+        if float(msg.confidence) < self.min_person_confidence:
+            return
+
+        now = time.monotonic()
+        if self.latest_person is None or now - self.latest_person_time > self.person_timeout_s:
+            self.person_seen_since = now
+
         self.latest_person = msg
-        self.latest_person_time = time.monotonic()
+        self.latest_person_time = now
 
     def scan_callback(self, scan: LaserScan):
         self.latest_scan = scan
@@ -172,7 +193,7 @@ class ApproachPersonNode(Node):
             return
 
         scan_stale = self.scan_is_stale(now)
-        person_visible = self.person_is_fresh(now)
+        person_visible = self.person_is_confirmed(now)
         front = self.sector_min(-self.front_half_angle_deg, self.front_half_angle_deg)
         blocked = (
             not scan_stale
@@ -188,8 +209,13 @@ class ApproachPersonNode(Node):
             return
 
         if person_visible and self.has_arrived(self.latest_person):
-            self.arrive_and_sit()
-            return
+            if self.arrival_candidate_since == 0.0:
+                self.arrival_candidate_since = now
+            if now - self.arrival_candidate_since >= self.arrival_confirm_s:
+                self.arrive_and_sit()
+                return
+        else:
+            self.arrival_candidate_since = 0.0
 
         if blocked and self.phase != "avoid":
             self.start_avoid(now)
@@ -251,6 +277,8 @@ class ApproachPersonNode(Node):
     def has_arrived(self, person: PersonTrack):
         if not person.distance_valid:
             return False
+        if abs(float(person.bearing_rad)) > self.arrival_centered_bearing_rad:
+            return False
         return float(person.distance_m) <= self.stop_distance_m + self.distance_tolerance_m
 
     def arrive_and_sit(self):
@@ -295,6 +323,11 @@ class ApproachPersonNode(Node):
         if self.latest_person is None:
             return False
         return now - self.latest_person_time <= self.person_timeout_s
+
+    def person_is_confirmed(self, now: float) -> bool:
+        if not self.person_is_fresh(now):
+            return False
+        return now - self.person_seen_since >= self.confirm_person_s
 
     def scan_is_stale(self, now: float) -> bool:
         if self.latest_scan is None:
