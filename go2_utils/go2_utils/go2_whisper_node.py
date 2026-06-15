@@ -5,7 +5,8 @@ Decode the Go2 audio stream, segment it into utterances with energy-based
 VAD endpointing, denoise each utterance with DeepFilterNet, and transcribe
 with faster-whisper.
 
-waits for you to speak and pause, then transcribes the whole utterance once
+Waits for you to speak and pause, then transcribes the whole utterance once.
+Transcription runs on a separate thread so listening is never blocked
 """
 
 import audioop
@@ -27,7 +28,7 @@ class DeepFilterDenoiser:
     """DeepFilterNet wrapper. Cleans mono 48 kHz audio.
 
     atten_lim_db caps the maximum attenuation so consonants survive
-    (12 dB worked well against the Go2 lidar noise)
+    (12 dB worked well against the Go2 lidar noise).
     """
 
     def __init__(self, atten_lim_db=None):
@@ -46,32 +47,6 @@ class DeepFilterDenoiser:
         return cleaned.squeeze(0).cpu().numpy()
 
 
-class SileroVad:
-    """Silero VAD wrapper. Neural speech/non-speech detector - far more
-    robust against steady broadband noise(lidar) than an RMS threshold which was experimented with earlier
-
-    Silero v5 needs exactly 512-sample windows at 16 kHz, so feed it via
-    speech_prob() one window at a time
-    """
-
-    WINDOW = 512  # samples at 16 kHz (~32 ms)
-
-    def __init__(self, threshold=0.5, use_onnx=False):
-        from silero_vad import load_silero_vad
-
-        # The ONNX runtime path is much faster than torch on CPUs without
-        # NNPACK (e.g. the Jetson), avoiding the VAD-thread bottleneck.
-        self.model = load_silero_vad(onnx=use_onnx)
-        self.threshold = threshold
-
-    def speech_prob(self, window16_i16):
-        audio = torch.from_numpy(window16_i16.astype(np.float32) / 32768.0)
-        return float(self.model(audio, 16000).item())
-
-    def reset(self):
-        self.model.reset_states()
-
-
 class Go2WhisperNode(Node):
     def __init__(self):
         super().__init__("go2_whisper_node")
@@ -81,38 +56,27 @@ class Go2WhisperNode(Node):
         self.declare_parameter("model_name", "base.en")
         self.declare_parameter("language", "en")
 
-        # Endpointing. Silero VAD (neural) tells speech from steady noise far
-        # better than an RMS threshold; if unavailable it falls back to min_rms.
-        self.declare_parameter("use_silero", True)
-        # Lidar noise scores ~0.07; real speech 0.3+, so 0.3 separates them
-        # with margin (0.5 is tuned for clean audio and can miss buried speech).
-        self.declare_parameter("vad_threshold", 0.3)   # silero speech prob
-        self.declare_parameter("vad_onnx", True)       # ONNX = faster on Jetson CPU
-        # RMS fallback only. min_rms must sit ABOVE the lidar floor (~600).
+        # Energy VAD endpointing. min_rms must sit ABOVE the lidar floor
+        # (~600), or every frame reads as speech and the pause is never found.
         self.declare_parameter("min_rms", 800)
         self.declare_parameter("endpoint_silence", 0.6)   # trailing silence (s)
         self.declare_parameter("min_utterance", 0.3)      # ignore shorter (s)
         self.declare_parameter("max_utterance", 4.0)      # force-flush cap (s)
         self.declare_parameter("min_text_length", 2)
         # Require this many consecutive loud frames (20 ms each) to start an
-        # utterance, so a single noise blip doesn't trigger it. Keep small so
-        # soft onsets (the "s" in "sit") aren't lost.
+        # utterance, so a single noise blip doesn't trigger it.
         self.declare_parameter("speech_start_frames", 2)
         # Audio kept before the trigger so soft word onsets aren't clipped.
         self.declare_parameter("pre_roll_ms", 300)
-        # Peak-normalize the denoised utterance. Safe because we process a
-        # whole utterance at once; lifts quiet denoised speech for Whisper.
+        # Peak-normalize the denoised utterance to lift quiet speech.
         self.declare_parameter("normalize", True)
-        # Drop an utterance if Whisper's no_speech_prob exceeds this. Lidar
-        # noise reads ~0.9; real commands read well below.
+        # Drop an utterance if Whisper's no_speech_prob exceeds this.
         self.declare_parameter("max_no_speech", 0.7)
 
-        # ASR backend / engine.
-        self.declare_parameter("backend", "faster")       # "faster" or "openai"
+        # faster-whisper engine.
         self.declare_parameter("device", "")              # "" = auto
-        self.declare_parameter("compute_type", "")        # "" = auto (faster)
-        self.declare_parameter("fp16", False)             # openai only
-        self.declare_parameter("beam_size", 5)
+        self.declare_parameter("compute_type", "")        # "" = auto
+        self.declare_parameter("beam_size", 2)
         self.declare_parameter("no_repeat_ngram_size", 3)
         self.declare_parameter("vad_filter", False)       # faster internal VAD
 
@@ -121,9 +85,8 @@ class Go2WhisperNode(Node):
         self.declare_parameter("atten_lim_db", 12.0)      # 0 = no limit
 
         # Empty by default: a command list as initial_prompt makes Whisper
-        # parrot those words on noise. Leave blank unless you know you want it.
+        # parrot those words on noise.
         self.declare_parameter("initial_prompt", "")
-
         self.declare_parameter("debug", True)
 
         self.audio_topic = self.get_parameter("audio_topic").value
@@ -131,9 +94,6 @@ class Go2WhisperNode(Node):
         self.model_name = self.get_parameter("model_name").value
         self.language = self.get_parameter("language").value
 
-        self.use_silero = bool(self.get_parameter("use_silero").value)
-        self.vad_threshold = float(self.get_parameter("vad_threshold").value)
-        self.vad_onnx = bool(self.get_parameter("vad_onnx").value)
         self.min_rms = int(self.get_parameter("min_rms").value)
         self.endpoint_silence = float(self.get_parameter("endpoint_silence").value)
         self.min_utterance = float(self.get_parameter("min_utterance").value)
@@ -144,10 +104,8 @@ class Go2WhisperNode(Node):
         self.normalize = bool(self.get_parameter("normalize").value)
         self.max_no_speech = float(self.get_parameter("max_no_speech").value)
 
-        self.backend = self.get_parameter("backend").value
         self.device_param = self.get_parameter("device").value
         self.compute_type = self.get_parameter("compute_type").value
-        self.fp16 = bool(self.get_parameter("fp16").value)
         self.beam_size = int(self.get_parameter("beam_size").value)
         self.no_repeat_ngram_size = int(
             self.get_parameter("no_repeat_ngram_size").value
@@ -179,7 +137,8 @@ class Go2WhisperNode(Node):
         )
 
         self.audio_queue = queue.Queue()
-        # Finished utterances wait here for transcription, so the slow transcribe step never blocks the VAD thread from listening
+        # Finished utterances wait here for transcription, so the slow
+        # transcribe step never blocks the VAD thread from listening.
         self.utterance_queue = queue.Queue()
         self.running = True
 
@@ -187,19 +146,6 @@ class Go2WhisperNode(Node):
         if self.enable_denoise:
             self.get_logger().info("Loading DeepFilterNet")
             self.denoiser = DeepFilterDenoiser(atten_lim_db=self.atten_lim_db)
-
-        self.vad = None
-        if self.use_silero:
-            try:
-                self.vad = SileroVad(self.vad_threshold, use_onnx=self.vad_onnx)
-                self.get_logger().info(
-                    "Using Silero VAD (%s, threshold=%.2f)"
-                    % ("onnx" if self.vad_onnx else "torch", self.vad_threshold)
-                )
-            except Exception as exc:
-                self.get_logger().warn(
-                    "Silero VAD unavailable (%s); falling back to RMS gate" % exc
-                )
 
         self.load_asr()
 
@@ -211,74 +157,39 @@ class Go2WhisperNode(Node):
         self.get_logger().info("Listening on %s" % self.audio_topic)
         self.get_logger().info("Publishing text on %s" % self.text_topic)
         self.get_logger().info(
-            "backend=%s vad=%s endpoint_silence=%.2f denoise=%s"
-            % (
-                self.backend,
-                "silero" if self.vad is not None else ("rms=%d" % self.min_rms),
-                self.endpoint_silence,
-                self.enable_denoise,
-            )
+            "min_rms=%d endpoint_silence=%.2f beam_size=%d denoise=%s"
+            % (self.min_rms, self.endpoint_silence, self.beam_size, self.enable_denoise)
         )
 
     def load_asr(self):
-        if self.backend == "faster":
-            import ctranslate2
-            from faster_whisper import WhisperModel
+        import ctranslate2
+        from faster_whisper import WhisperModel
 
-            cuda_ok = ctranslate2.get_cuda_device_count() > 0
-            device = self.device_param or ("cuda" if cuda_ok else "cpu")
-            compute_type = self.compute_type or (
-                "float16" if device == "cuda" else "int8"
-            )
-            self.get_logger().info(
-                "Loading faster-whisper '%s' on %s (%s)"
-                % (self.model_name, device, compute_type)
-            )
-            self.fw_model = WhisperModel(
-                self.model_name, device=device, compute_type=compute_type
-            )
-        else:
-            import whisper
-
-            device = self.device_param or (
-                "cuda" if torch.cuda.is_available() else "cpu"
-            )
-            if device == "cpu" and self.fp16:
-                self.fp16 = False
-            self.get_logger().info(
-                "Loading whisper '%s' on %s" % (self.model_name, device)
-            )
-            self.model = whisper.load_model(self.model_name, device=device)
+        cuda_ok = ctranslate2.get_cuda_device_count() > 0
+        device = self.device_param or ("cuda" if cuda_ok else "cpu")
+        compute_type = self.compute_type or ("float16" if device == "cuda" else "int8")
+        self.get_logger().info(
+            "Loading faster-whisper '%s' on %s (%s)"
+            % (self.model_name, device, compute_type)
+        )
+        self.fw_model = WhisperModel(
+            self.model_name, device=device, compute_type=compute_type
+        )
 
     def transcribe(self, audio_f32):
-        if self.backend == "faster":
-            segments, _ = self.fw_model.transcribe(
-                audio_f32,
-                language=self.language,
-                beam_size=self.beam_size,
-                condition_on_previous_text=False,
-                no_speech_threshold=0.6,
-                no_repeat_ngram_size=self.no_repeat_ngram_size,
-                vad_filter=self.vad_filter,
-                initial_prompt=self.initial_prompt,
-            )
-            segs = list(segments)
-            text = " ".join(s.text for s in segs).strip()
-            nsp = segs[0].no_speech_prob if segs else None
-            return text, nsp
-
-        result = self.model.transcribe(
+        segments, _ = self.fw_model.transcribe(
             audio_f32,
             language=self.language,
-            fp16=self.fp16,
-            verbose=False,
+            beam_size=self.beam_size,
             condition_on_previous_text=False,
             no_speech_threshold=0.6,
+            no_repeat_ngram_size=self.no_repeat_ngram_size,
+            vad_filter=self.vad_filter,
             initial_prompt=self.initial_prompt,
         )
-        text = result.get("text", "").strip()
-        segments = result.get("segments", [])
-        nsp = segments[0].get("no_speech_prob") if segments else None
+        segs = list(segments)
+        text = " ".join(s.text for s in segs).strip()
+        nsp = segs[0].no_speech_prob if segs else None
         return text, nsp
 
     def audio_callback(self, msg: AudioData):
@@ -292,7 +203,8 @@ class Go2WhisperNode(Node):
             self.get_logger().warn("Opus decode failed: %s" % exc)
             return
 
-        # Stereo 48 kHz int16 -> mono 48 kHz int16. Stay at 48 kHz so the denoiser sees the full band; downsample after enhancement
+        # Stereo 48 kHz int16 -> mono 48 kHz int16. Stay at 48 kHz so the
+        # denoiser sees the full band; downsample after enhancement.
         pcm48_mono = audioop.tomono(pcm48_stereo, 2, 0.5, 0.5)
         self.audio_queue.put(np.frombuffer(pcm48_mono, dtype=np.int16))
 
@@ -319,36 +231,18 @@ class Go2WhisperNode(Node):
         loud_run = 0
         pre_roll = deque(maxlen=max(1, self.pre_roll_ms // self.frame_ms))
 
-        # Silero VAD runs on a continuous 16 kHz stream in 512-sample windows;
-        # keep a resampler state and a buffer, and reuse the latest decision for each 20 ms frame.
-        vad_state = None
-        vad_buf = np.zeros(0, dtype=np.int16)
-        vad_speech = False
-
         while self.running:
             try:
                 frame = self.audio_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
 
-            if self.vad is not None:
-                pcm16, vad_state = audioop.ratecv(
-                    frame.tobytes(), 2, 1, self.opus_rate, self.whisper_rate, vad_state
-                )
-                vad_buf = np.concatenate(
-                    [vad_buf, np.frombuffer(pcm16, dtype=np.int16)]
-                )
-                while len(vad_buf) >= SileroVad.WINDOW:
-                    window = vad_buf[: SileroVad.WINDOW]
-                    vad_buf = vad_buf[SileroVad.WINDOW:]
-                    vad_speech = self.vad.speech_prob(window) >= self.vad.threshold
-                loud = vad_speech
-            else:
-                loud = audioop.rms(frame.tobytes(), 2) >= self.min_rms
+            loud = audioop.rms(frame.tobytes(), 2) >= self.min_rms
 
             if not in_speech:
-                # Wait for sustained loudness before starting, so a single noise burst can't open an utterance
-                # Keep a pre-roll so the word onset isn't clipped once we do start
+                # Wait for sustained loudness before starting, so a single
+                # noise burst can't open an utterance. Keep a pre-roll so the
+                # word onset isn't clipped once we do start.
                 pre_roll.append(frame)
                 loud_run = loud_run + 1 if loud else 0
                 if loud_run >= self.speech_start_frames:
@@ -365,7 +259,7 @@ class Go2WhisperNode(Node):
 
             if silence_ms >= endpoint_ms or utt_len >= max_samples:
                 if utt_len >= min_samples:
-                    # Hand off to the transcribe thread, never block listening
+                    # Hand off to the transcribe thread; never block listening.
                     self.utterance_queue.put(np.concatenate(utterance))
                 utterance = []
                 utt_len = 0
@@ -373,9 +267,6 @@ class Go2WhisperNode(Node):
                 silence_ms = 0
                 loud_run = 0
                 pre_roll.clear()
-                if self.vad is not None:
-                    self.vad.reset()
-                    vad_speech = False
 
     def transcribe_loop(self):
         while self.running:
@@ -421,7 +312,8 @@ class Go2WhisperNode(Node):
                     )
                 )
 
-            # Reject what Whisper itself flags as non-speech (lidar noise reads ~0.9), and anything too short to be a command
+            # Reject what Whisper flags as non-speech (lidar noise reads ~0.9)
+            # and anything too short to be a command.
             if nsp is not None and nsp > self.max_no_speech:
                 return
             if len(text) < self.min_text_length:
