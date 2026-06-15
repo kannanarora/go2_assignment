@@ -59,6 +59,8 @@ class SportClientWrapperNode(Node):
             10
         )
 
+        self._request_counter = 0
+
         self.command_handlers = {
             'stand': lambda: self.send_request(SPORT_API_ID_STAND_UP),
             'balance_stand': lambda: self.send_request(SPORT_API_ID_BALANCE_STAND),
@@ -130,12 +132,9 @@ class SportClientWrapperNode(Node):
 
         return req
 
-    # Simple counter so each request gets a unique ID
-    _request_counter = 0
-
     def get_next_id(self) -> int:
-        SportClientWrapperNode._request_counter += 1
-        return SportClientWrapperNode._request_counter
+        self._request_counter += 1
+        return self._request_counter
 
 
 def main(args=None):
