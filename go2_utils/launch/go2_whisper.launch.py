@@ -9,6 +9,7 @@ def generate_launch_description():
     text_topic = LaunchConfiguration("text_topic")
     model_name = LaunchConfiguration("model_name")
     backend = LaunchConfiguration("backend")
+    beam_size = LaunchConfiguration("beam_size")
     enable_denoise = LaunchConfiguration("enable_denoise")
     atten_lim_db = LaunchConfiguration("atten_lim_db")
     use_silero = LaunchConfiguration("use_silero")
@@ -23,6 +24,7 @@ def generate_launch_description():
         DeclareLaunchArgument("text_topic", default_value="/go2/whisper/text"),
         DeclareLaunchArgument("model_name", default_value="base.en"),
         DeclareLaunchArgument("backend", default_value="faster"),
+        DeclareLaunchArgument("beam_size", default_value="2"),
         DeclareLaunchArgument("enable_denoise", default_value="true"),
         DeclareLaunchArgument("atten_lim_db", default_value="12.0"),
         DeclareLaunchArgument("use_silero", default_value="true"),
@@ -41,6 +43,7 @@ def generate_launch_description():
                 "text_topic": text_topic,
                 "model_name": model_name,
                 "backend": backend,
+                "beam_size": beam_size,
                 "enable_denoise": enable_denoise,
                 "atten_lim_db": atten_lim_db,
                 "use_silero": use_silero,
