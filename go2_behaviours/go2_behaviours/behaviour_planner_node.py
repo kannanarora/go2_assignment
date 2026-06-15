@@ -8,13 +8,87 @@ import time
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
+    DurabilityPolicy,
+    HistoryPolicy,
     QoSProfile,
     ReliabilityPolicy,
-    HistoryPolicy,
-    DurabilityPolicy,
 )
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool, String
+
+from go2_behaviours.behaviour_tree import (
+    Action,
+    Blackboard,
+    Condition,
+    Node,
+    Selector,
+    Sequence,
+    Status,
+)
+
+
+def _safety_inactive(bb: Blackboard) -> bool:
+    return not bb.safety_active
+
+
+def _not_in_hello_cooldown(bb: Blackboard) -> bool:
+    return bb.now >= bb.hello_cooldown_until
+
+
+def _not_too_close_for_hello(bb: Blackboard) -> bool:
+    if math.isfinite(bb.front_range) and bb.front_range <= bb.safety_clear_dist:
+        bb.hello_streak = 0
+        return False
+    return True
+
+
+def _update_greeting_streak(bb: Blackboard) -> bool:
+    in_band = (
+        math.isfinite(bb.front_range)
+        and bb.greeting_min <= bb.front_range < bb.greeting_dist
+    )
+    if in_band:
+        bb.hello_streak += 1
+    else:
+        bb.hello_streak = 0
+    return in_band
+
+
+def _hello_confirmed(bb: Blackboard) -> bool:
+    return bb.hello_streak >= bb.hello_confirm_ticks
+
+
+def _request_hello(bb: Blackboard) -> Status:
+    range_text = f'{bb.front_range:.2f}m'
+    bb.chosen_behaviour = 'hello'
+    bb.chosen_reason = range_text
+    bb.hello_streak = 0
+    bb.hello_cooldown_until = bb.now + bb.hello_cooldown_s
+    return Status.SUCCESS
+
+
+def _idle(bb: Blackboard) -> Status:
+    return Status.FAILURE
+
+
+def build_planner_tree() -> Node:
+    return Selector(
+        'planner_root',
+        [
+            Sequence(
+                'lidar_hello',
+                [
+                    Condition('safety_inactive', _safety_inactive),
+                    Condition('not_in_cooldown', _not_in_hello_cooldown),
+                    Condition('not_too_close', _not_too_close_for_hello),
+                    Condition('in_greeting_band', _update_greeting_streak),
+                    Condition('hello_confirmed', _hello_confirmed),
+                    Action('request_hello', _request_hello),
+                ],
+            ),
+            Action('idle', _idle),
+        ],
+    )
 
 
 class BehaviourPlannerNode(Node):
@@ -32,22 +106,22 @@ class BehaviourPlannerNode(Node):
         self.declare_parameter('hello_cooldown_s', 12.0)
 
         self.scan_topic = self.get_parameter('scan_topic').value
-        self.greeting_min = self.get_parameter('greeting_min_distance').value
-        self.greeting_dist = self.get_parameter('greeting_distance').value
-        self.safety_clear_dist = self.get_parameter('safety_clear_distance').value
-        self.front_half_angle_deg = self.get_parameter('front_half_angle_deg').value
         tick_rate = self.get_parameter('tick_rate_s').value
-        self.hello_confirm_ticks = int(
-            self.get_parameter('hello_confirm_ticks').value
-        )
-        self.hello_cooldown_s = float(
-            self.get_parameter('hello_cooldown_s').value
-        )
+        self.front_half_angle_deg = self.get_parameter('front_half_angle_deg').value
 
-        self.safety_active = False
-        self.front_range = float('inf')
-        self._hello_streak = 0
-        self._hello_cooldown_until = 0.0
+        self._blackboard = Blackboard()
+        self._blackboard.greeting_min = self.get_parameter(
+            'greeting_min_distance').value
+        self._blackboard.greeting_dist = self.get_parameter(
+            'greeting_distance').value
+        self._blackboard.safety_clear_dist = self.get_parameter(
+            'safety_clear_distance').value
+        self._blackboard.hello_confirm_ticks = int(
+            self.get_parameter('hello_confirm_ticks').value)
+        self._blackboard.hello_cooldown_s = float(
+            self.get_parameter('hello_cooldown_s').value)
+
+        self._tree = build_planner_tree()
 
         scan_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -61,54 +135,32 @@ class BehaviourPlannerNode(Node):
             LaserScan, self.scan_topic, self._on_scan, scan_qos)
 
         self.behaviour_pub = self.create_publisher(String, '/requested_behaviour', 10)
-        self.timer = self.create_timer(tick_rate, self._decide)
+        self.timer = self.create_timer(tick_rate, self._tick_tree)
 
         self.get_logger().info(
-            'BehaviourPlannerNode ready — LiDAR hello'
+            'BehaviourPlannerNode ready — behaviour tree (LiDAR hello)'
         )
 
     def _on_safety(self, msg: Bool):
-        self.safety_active = msg.data
-        if self.safety_active:
-            self._hello_streak = 0
+        self._blackboard.safety_active = msg.data
+        if self._blackboard.safety_active:
+            self._blackboard.hello_streak = 0
 
     def _on_scan(self, msg: LaserScan):
-        self.front_range = self._front_min_range(msg)
+        self._blackboard.front_range = self._front_min_range(msg)
 
-    def _decide(self):
-        if self.safety_active:
-            return
+    def _tick_tree(self):
+        bb = self._blackboard
+        bb.now = time.monotonic()
+        bb.chosen_behaviour = None
+        bb.chosen_reason = None
 
-        now = time.monotonic()
-        if now < self._hello_cooldown_until:
-            return
+        self._tree.tick(bb)
 
-        if (
-            math.isfinite(self.front_range)
-            and self.front_range <= self.safety_clear_dist
-        ):
-            self._hello_streak = 0
-            return
+        if bb.chosen_behaviour:
+            self._publish_behaviour(bb.chosen_behaviour, bb.chosen_reason)
 
-        in_greeting_band = (
-            math.isfinite(self.front_range)
-            and self.greeting_min <= self.front_range < self.greeting_dist
-        )
-
-        if in_greeting_band:
-            self._hello_streak += 1
-        else:
-            self._hello_streak = 0
-
-        if self._hello_streak < self.hello_confirm_ticks:
-            return
-
-        range_text = f'{self.front_range:.2f}m'
-        self._request_behaviour('hello', range_text)
-        self._hello_streak = 0
-        self._hello_cooldown_until = now + self.hello_cooldown_s
-
-    def _request_behaviour(self, behaviour: str, reason: str):
+    def _publish_behaviour(self, behaviour: str, reason: str):
         self.get_logger().info(
             f'Requesting behaviour: {behaviour} ({reason})'
         )
