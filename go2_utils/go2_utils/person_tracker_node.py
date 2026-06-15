@@ -372,7 +372,6 @@ class PersonTrackerNode(Node):
         )
         wants_compressed = (
             self.debug_compressed_pub is not None
-            and self.debug_compressed_pub.get_subscription_count() > 0
             and self.should_publish_debug_compressed()
         )
         if not wants_raw and not wants_compressed:
