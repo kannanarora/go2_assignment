@@ -29,6 +29,7 @@ setup(
             'front_safety_sit_node = go2_behaviours.front_safety_sit_node:main',
             'wander_node = go2_behaviours.wander_node:main',
             'sit_stand_loop_node = go2_behaviours.sit_stand_loop_node:main',
+            'bark_node = go2_behaviours.bark_node:main',
         ],
     },
 )
