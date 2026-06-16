@@ -21,6 +21,13 @@ from launch_ros.actions import Node
 SOUND_MAP = [
     "bark:go2_bark",
     "speak:go2_bark",
+    "bark2:go2_bark2",
+    "bark3:go2_bark3",
+    "breathe:go2_breathing",
+    "cry:go2_crying",
+    "pant:go2_panting1",
+    "pant2:go2_panting2",
+    "pant3:go2_panting3",
 ]
 
 

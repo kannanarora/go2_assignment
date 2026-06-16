@@ -1,17 +1,16 @@
 """
-Thin client for the Go2 AudioHub API.
+Thin client for the Go2 AudioHub API
 
 Wraps the request/response plumbing shared by the audio nodes (upload,
 list, play) so the protocol lives in one place instead of being copied
-into every node that touches sound.
+into every node that touches sound
 
-Construct it with a Node; it creates the pub/sub on that node and drives
-replies via rclpy.spin_once on that node.
+it creates the pub/sub on that node and drives replies via rclpy.spin_once on that node
 
     client = AudioHubClient(self)
     uuid = client.upload("/path/to/sound.wav", "my_sound")   # idempotent
     client.play(uuid)
-    uuid = client.resolve_uuid("my_sound")                    # name -> uuid
+    uuid = client.resolve_uuid("my_sound")    # name -> uuid
 """
 
 import base64
@@ -62,7 +61,7 @@ class AudioHubClient:
         self._pub.publish(req)
 
     def resolve_uuid(self, file_name):
-        """Return the AudioHub UUID for file_name, or None if not present."""
+        # Return the AudioHub UUID for file_name, or None if not present
         self._response = None
         self._last_api = None
         self._publish(GET_AUDIO_LIST, {})
@@ -83,11 +82,11 @@ class AudioHubClient:
             return None
 
     def play(self, uuid):
-        """Start playback of a clip by UUID."""
+        # Start playback of a clip by UUID
         self._publish(SELECT_START_PLAY, {"unique_id": uuid})
 
     def upload(self, wav_path, file_name):
-        """Upload a WAV into AudioHub and return its UUID (None on failure).
+        """Upload a WAV into AudioHub and return its UUID (None on failure)
 
         Idempotent: if file_name already exists in AudioHub the existing
         UUID is returned without re-uploading.
