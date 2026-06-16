@@ -77,11 +77,13 @@ class GStreamerCameraNode(Node):
     def build_pipeline(self):
         return (
             "udpsrc address=%s port=%d multicast-iface=%s "
-            "! queue "
+            "! queue leaky=downstream max-size-buffers=1 max-size-bytes=0 max-size-time=0 "
             "! application/x-rtp, media=video, encoding-name=H264 "
             "! rtph264depay "
             "! h264parse "
+            "! queue leaky=downstream max-size-buffers=1 max-size-bytes=0 max-size-time=0 "
             "! avdec_h264 "
+            "! queue leaky=downstream max-size-buffers=1 max-size-bytes=0 max-size-time=0 "
             "! videoconvert "
             "! video/x-raw,width=%d,height=%d,format=BGR "
             "! appsink name=sink emit-signals=true max-buffers=1 drop=true sync=false"
