@@ -164,6 +164,9 @@ class PersonTrackerNode(Node):
         self.inference_backend = self.declare_parameter(
             "inference_backend", "opencv"
         ).value
+        self.fallback_to_opencv = bool(
+            self.declare_parameter("fallback_to_opencv", True).value
+        )
         self.input_width = int(self.declare_parameter("input_width", 640).value)
         self.input_height = int(self.declare_parameter("input_height", 640).value)
         self.min_confidence = float(self.declare_parameter("min_confidence", 0.10).value)
@@ -285,7 +288,15 @@ class PersonTrackerNode(Node):
             except RuntimeError as exc:
                 self.get_logger().error(str(exc))
                 self.backend = None
-            return
+                if not self.fallback_to_opencv:
+                    return
+
+                self.get_logger().warn(
+                    "Falling back to OpenCV backend because TensorRT failed."
+                )
+                backend = "opencv"
+            else:
+                return
 
         if backend != "opencv":
             self.get_logger().error(
