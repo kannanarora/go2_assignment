@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
+import math
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import CompressedImage, Image
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 
 
 class GStreamerCameraNode(Node):
@@ -16,6 +18,9 @@ class GStreamerCameraNode(Node):
         self.compressed_output_topic = self.declare_parameter(
             "compressed_output_topic", "/camera/color/image/compressed"
         ).value
+        self.camera_info_topic = self.declare_parameter(
+            "camera_info_topic", "/camera/color/camera_info"
+        ).value
         self.frame_id = self.declare_parameter("frame_id", "front_camera").value
         self.multicast_address = self.declare_parameter(
             "multicast_address", "230.1.1.1"
@@ -26,7 +31,7 @@ class GStreamerCameraNode(Node):
         self.height = int(self.declare_parameter("height", 720).value)
         self.output_width = int(self.declare_parameter("output_width", 640).value)
         self.output_height = int(self.declare_parameter("output_height", 360).value)
-        self.decoder = self.declare_parameter("decoder", "auto").value
+        self.decoder = self.declare_parameter("decoder", "nvidia").value
         self.publish_raw = bool(self.declare_parameter("publish_raw", True).value)
         self.publish_compressed = bool(
             self.declare_parameter("publish_compressed", True).value
@@ -36,12 +41,17 @@ class GStreamerCameraNode(Node):
             self.declare_parameter("compressed_max_fps", 3.0).value
         )
         self.jpeg_quality = int(self.declare_parameter("jpeg_quality", 70).value)
+        self.camera_horizontal_fov_deg = float(
+            self.declare_parameter("camera_horizontal_fov_deg", 90.0).value
+        )
 
         try:
             import gi
 
             gi.require_version("Gst", "1.0")
+            gi.require_version("GstVideo", "1.0")
             from gi.repository import Gst
+            from gi.repository import GstVideo
         except ImportError as exc:
             raise RuntimeError(
                 "gstreamer_camera_node requires python3-gi and GStreamer bindings."
@@ -49,11 +59,15 @@ class GStreamerCameraNode(Node):
 
         Gst.init(None)
         self.Gst = Gst
+        self.GstVideo = GstVideo
 
         try:
             import cv2
-        except ImportError:
-            cv2 = None
+        except ImportError as exc:
+            raise RuntimeError(
+                "gstreamer_camera_node requires OpenCV for resize/JPEG publishing. "
+                "Install python3-opencv."
+            ) from exc
 
         self.cv2 = cv2
         self.pipeline = None
@@ -70,6 +84,11 @@ class GStreamerCameraNode(Node):
         self.compressed_pub = self.create_publisher(
             CompressedImage,
             self.compressed_output_topic,
+            qos_profile_sensor_data,
+        )
+        self.camera_info_pub = self.create_publisher(
+            CameraInfo,
+            self.camera_info_topic,
             qos_profile_sensor_data,
         )
 
@@ -96,30 +115,29 @@ class GStreamerCameraNode(Node):
 
     def build_decoder_pipeline(self, output_width, output_height):
         decoder = str(self.decoder).lower()
-        use_nvidia = decoder in ("auto", "nvidia", "jetson", "hardware")
+        if decoder not in ("nvidia", "jetson", "hardware"):
+            raise RuntimeError(
+                "Unsupported decoder '%s'. This node is configured to require the "
+                "Jetson NVIDIA decoder; use decoder: nvidia." % self.decoder
+            )
 
         nvidia_converter = self.nvidia_converter_element()
-        if (
-            use_nvidia
-            and self.has_gst_element("nvv4l2decoder")
-            and nvidia_converter is not None
-        ):
-            self.get_logger().info("Using NVIDIA GStreamer H264 decoder")
-            return (
-                "! nvv4l2decoder enable-max-performance=1 disable-dpb=true "
-                "! %s "
-                "! video/x-raw,width=%d,height=%d,format=BGRx "
-                "! videoconvert "
-                "! video/x-raw,format=BGR"
-            ) % (nvidia_converter, output_width, output_height)
+        if not self.has_gst_element("nvv4l2decoder"):
+            raise RuntimeError("Required GStreamer element 'nvv4l2decoder' not found.")
+        if nvidia_converter is None:
+            raise RuntimeError(
+                "Required NVIDIA GStreamer converter not found "
+                "(expected nvvidconv or nvvideoconvert)."
+            )
 
-        self.get_logger().info("Using software GStreamer H264 decoder")
+        self.get_logger().info("Using NVIDIA GStreamer H264 decoder")
         return (
-            "! avdec_h264 "
+            "! nvv4l2decoder enable-max-performance=1 disable-dpb=true "
+            "! %s "
+            "! video/x-raw,width=%d,height=%d,format=BGRx "
             "! videoconvert "
-            "! videoscale "
             "! video/x-raw,width=%d,height=%d,format=BGR"
-        ) % (output_width, output_height)
+        ) % (nvidia_converter, output_width, output_height, output_width, output_height)
 
     def has_gst_element(self, name):
         return self.Gst.ElementFactory.find(name) is not None
@@ -167,8 +185,8 @@ class GStreamerCameraNode(Node):
         if not self.logged_first_frame:
             self.logged_first_frame = True
             self.get_logger().info(
-                "GStreamer camera frame: width=%d height=%d encoding=bgr8"
-                % (width, height)
+                "GStreamer camera frame: width=%d height=%d encoding=bgr8 buffer=%d"
+                % (width, height, len(map_info.data))
             )
 
         try:
@@ -196,7 +214,13 @@ class GStreamerCameraNode(Node):
             if not wants_raw and not wants_compressed:
                 return self.Gst.FlowReturn.OK
 
-            frame_bytes = bytes(map_info.data)
+            frame_bytes = self.sample_to_tightly_packed_bgr(
+                map_info,
+                caps,
+                width,
+                height,
+            )
+
             frame_bytes, width, height = self.resize_if_needed(
                 frame_bytes,
                 width,
@@ -207,6 +231,7 @@ class GStreamerCameraNode(Node):
                 self.image_pub.publish(
                     self.bgr_bytes_to_image_msg(frame_bytes, width, height, stamp)
                 )
+                self.publish_camera_info(width, height, stamp)
                 self.last_raw_publish_time = now.nanoseconds * 1e-9
 
             if wants_compressed:
@@ -216,13 +241,50 @@ class GStreamerCameraNode(Node):
                     height,
                     stamp,
                 )
-                if msg is not None:
-                    self.compressed_pub.publish(msg)
-                    self.last_compressed_publish_time = now.nanoseconds * 1e-9
+                self.compressed_pub.publish(msg)
+                self.last_compressed_publish_time = now.nanoseconds * 1e-9
+        except Exception as exc:
+            self.get_logger().error("Fatal camera bridge error: %s" % exc)
+            self.pipeline.set_state(self.Gst.State.NULL)
+            return self.Gst.FlowReturn.ERROR
         finally:
             buffer.unmap(map_info)
 
         return self.Gst.FlowReturn.OK
+
+    def sample_to_tightly_packed_bgr(self, map_info, caps, width, height):
+        channels = 3
+        row_bytes = int(width * channels)
+        expected_size = int(row_bytes * height)
+        data = map_info.data
+
+        if len(data) == expected_size:
+            return bytes(data)
+
+        stride = self.buffer_stride(caps)
+        if stride >= row_bytes and len(data) >= stride * height:
+            rows = []
+            for row in range(height):
+                start = row * stride
+                rows.append(data[start : start + row_bytes])
+            return b"".join(rows)
+
+        raise RuntimeError(
+            "Cannot repack GStreamer BGR frame safely: buffer=%d expected=%d "
+            "stride=%d row_bytes=%d height=%d"
+            % (len(data), expected_size, stride, row_bytes, height)
+        )
+
+    def buffer_stride(self, caps):
+        try:
+            info = self.GstVideo.VideoInfo.new_from_caps(caps)
+            stride = int(info.stride[0])
+            if stride > 0:
+                return stride
+        except Exception as exc:
+            raise RuntimeError("Could not read GStreamer video stride: %s" % exc) from exc
+
+        raise RuntimeError("GStreamer video stride was missing or invalid.")
 
     def should_publish(self, now_s, last_publish_s, max_fps):
         if max_fps <= 0.0:
@@ -234,9 +296,6 @@ class GStreamerCameraNode(Node):
             return frame_bytes, width, height
 
         if width == self.output_width and height == self.output_height:
-            return frame_bytes, width, height
-
-        if self.cv2 is None:
             return frame_bytes, width, height
 
         import numpy as np
@@ -262,9 +321,6 @@ class GStreamerCameraNode(Node):
         return msg
 
     def bgr_bytes_to_compressed_msg(self, frame_bytes, width, height, stamp):
-        if self.cv2 is None:
-            return None
-
         import numpy as np
 
         bgr = np.frombuffer(frame_bytes, dtype=np.uint8).reshape((height, width, 3))
@@ -275,7 +331,7 @@ class GStreamerCameraNode(Node):
             [int(self.cv2.IMWRITE_JPEG_QUALITY), quality],
         )
         if not ok:
-            return None
+            raise RuntimeError("OpenCV failed to JPEG-encode camera frame.")
 
         msg = CompressedImage()
         msg.header.stamp = stamp
@@ -283,6 +339,64 @@ class GStreamerCameraNode(Node):
         msg.format = "jpeg"
         msg.data = encoded.tobytes()
         return msg
+
+    def publish_camera_info(self, width, height, stamp):
+        if self.camera_info_pub.get_subscription_count() == 0:
+            return
+
+        fx = self.focal_length_px(width, self.camera_horizontal_fov_deg)
+        fy = fx
+        cx = float(width) * 0.5
+        cy = float(height) * 0.5
+
+        msg = CameraInfo()
+        msg.header.stamp = stamp
+        msg.header.frame_id = self.frame_id
+        msg.height = int(height)
+        msg.width = int(width)
+        msg.distortion_model = "plumb_bob"
+        msg.d = [0.0, 0.0, 0.0, 0.0, 0.0]
+        msg.k = [
+            fx,
+            0.0,
+            cx,
+            0.0,
+            fy,
+            cy,
+            0.0,
+            0.0,
+            1.0,
+        ]
+        msg.r = [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        ]
+        msg.p = [
+            fx,
+            0.0,
+            cx,
+            0.0,
+            0.0,
+            fy,
+            cy,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+        ]
+        self.camera_info_pub.publish(msg)
+
+    def focal_length_px(self, width, horizontal_fov_deg):
+        half_fov = max(1.0, min(179.0, horizontal_fov_deg)) * 0.5
+        return float(width) * 0.5 / math.tan(math.radians(half_fov))
 
     def destroy_node(self):
         if self.pipeline is not None:
