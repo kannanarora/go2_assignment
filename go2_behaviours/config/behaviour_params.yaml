@@ -38,8 +38,8 @@ obstacle_avoid_node:
     command_topic: /avoidance_cmd
     turn_speed_radps: 1.26
     avoid_turn_speed_radps: 1.35
-    avoid_threshold_m: 1.45
-    clear_threshold_m: 1.75
+    avoid_threshold_m: 0.75
+    clear_threshold_m: 0.95
     front_half_angle_deg: 18.0
     side_sector_min_deg: 25.0
     side_sector_max_deg: 80.0
