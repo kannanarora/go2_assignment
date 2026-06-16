@@ -3,6 +3,7 @@
 import math
 import os
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import rclpy
@@ -17,6 +18,123 @@ from rclpy.qos import (
 )
 from sensor_msgs.msg import CompressedImage, Image, LaserScan
 from std_msgs.msg import Bool
+
+
+@dataclass
+class InferenceResult:
+    output: np.ndarray
+    shape: tuple
+
+
+class OpenCvYoloBackend:
+    def __init__(self, cv2, model_path: str):
+        self.cv2 = cv2
+        self.net = cv2.dnn.readNetFromONNX(model_path)
+
+    def infer(self, blob: np.ndarray) -> InferenceResult:
+        self.net.setInput(blob)
+        output = self.net.forward()
+        return InferenceResult(output=output, shape=tuple(output.shape))
+
+
+class TensorRtYoloBackend:
+    def __init__(self, engine_path: str, input_width: int, input_height: int):
+        if not engine_path:
+            raise RuntimeError("TensorRT backend requires engine_path.")
+        if not os.path.exists(engine_path):
+            raise RuntimeError("TensorRT engine not found: %s" % engine_path)
+
+        try:
+            import tensorrt as trt
+            import pycuda.autoinit  # noqa: F401
+            import pycuda.driver as cuda
+        except ImportError as exc:
+            raise RuntimeError(
+                "TensorRT backend requires Python packages 'tensorrt' and 'pycuda' "
+                "on the Jetson."
+            ) from exc
+
+        self.trt = trt
+        self.cuda = cuda
+        self.input_width = input_width
+        self.input_height = input_height
+        self.logger = trt.Logger(trt.Logger.WARNING)
+
+        with open(engine_path, "rb") as engine_file:
+            runtime = trt.Runtime(self.logger)
+            self.engine = runtime.deserialize_cuda_engine(engine_file.read())
+
+        if self.engine is None:
+            raise RuntimeError("Failed to deserialize TensorRT engine: %s" % engine_path)
+
+        self.context = self.engine.create_execution_context()
+        self.stream = cuda.Stream()
+        self.input_index = None
+        self.output_index = None
+        self.bindings = [0] * self.engine.num_bindings
+        self.host_buffers = {}
+        self.device_buffers = {}
+
+        for index in range(self.engine.num_bindings):
+            if self.engine.binding_is_input(index):
+                self.input_index = index
+            else:
+                self.output_index = index
+
+        if self.input_index is None or self.output_index is None:
+            raise RuntimeError("TensorRT engine must have one input and one output.")
+
+        input_shape = tuple(self.engine.get_binding_shape(self.input_index))
+        if any(dim < 0 for dim in input_shape):
+            input_shape = (1, 3, input_height, input_width)
+            self.context.set_binding_shape(self.input_index, input_shape)
+
+        self._allocate_binding(self.input_index, input_shape)
+        output_shape = tuple(self.context.get_binding_shape(self.output_index))
+        self._allocate_binding(self.output_index, output_shape)
+
+    def _allocate_binding(self, index: int, shape: tuple):
+        dtype = self.trt.nptype(self.engine.get_binding_dtype(index))
+        size = int(np.prod(shape))
+        host = self.cuda.pagelocked_empty(size, dtype)
+        device = self.cuda.mem_alloc(host.nbytes)
+        self.host_buffers[index] = host
+        self.device_buffers[index] = device
+        self.bindings[index] = int(device)
+
+    def infer(self, blob: np.ndarray) -> InferenceResult:
+        input_shape = tuple(blob.shape)
+        current_shape = tuple(self.context.get_binding_shape(self.input_index))
+        if current_shape != input_shape:
+            self.context.set_binding_shape(self.input_index, input_shape)
+            self._allocate_binding(self.input_index, input_shape)
+            output_shape = tuple(self.context.get_binding_shape(self.output_index))
+            self._allocate_binding(self.output_index, output_shape)
+
+        host_input = self.host_buffers[self.input_index]
+        np.copyto(host_input, blob.ravel())
+        self.cuda.memcpy_htod_async(
+            self.device_buffers[self.input_index],
+            host_input,
+            self.stream,
+        )
+
+        self.context.execute_async_v2(
+            bindings=self.bindings,
+            stream_handle=self.stream.handle,
+        )
+
+        host_output = self.host_buffers[self.output_index]
+        self.cuda.memcpy_dtoh_async(
+            host_output,
+            self.device_buffers[self.output_index],
+            self.stream,
+        )
+        self.stream.synchronize()
+
+        output_shape = tuple(self.context.get_binding_shape(self.output_index))
+        output = np.array(host_output, copy=True).reshape(output_shape)
+        return InferenceResult(output=output, shape=output_shape)
 
 
 class PersonTrackerNode(Node):
@@ -42,6 +160,10 @@ class PersonTrackerNode(Node):
         ).value
 
         self.model_path = self.declare_parameter("model_path", "").value
+        self.engine_path = self.declare_parameter("engine_path", "").value
+        self.inference_backend = self.declare_parameter(
+            "inference_backend", "opencv"
+        ).value
         self.input_width = int(self.declare_parameter("input_width", 640).value)
         self.input_height = int(self.declare_parameter("input_height", 640).value)
         self.min_confidence = float(self.declare_parameter("min_confidence", 0.10).value)
@@ -92,7 +214,7 @@ class PersonTrackerNode(Node):
             ) from exc
 
         self.cv2 = cv2
-        self.net = None
+        self.backend = None
         self.latest_scan = None
         self.last_detection_time = 0.0
         self.last_visible = False
@@ -148,6 +270,30 @@ class PersonTrackerNode(Node):
         )
 
     def load_model(self):
+        backend = str(self.inference_backend).lower()
+
+        if backend == "tensorrt":
+            try:
+                self.backend = TensorRtYoloBackend(
+                    self.engine_path,
+                    self.input_width,
+                    self.input_height,
+                )
+                self.get_logger().info(
+                    "Loaded TensorRT YOLO engine: %s" % self.engine_path
+                )
+            except RuntimeError as exc:
+                self.get_logger().error(str(exc))
+                self.backend = None
+            return
+
+        if backend != "opencv":
+            self.get_logger().error(
+                "Unsupported inference_backend '%s'. Use 'opencv' or 'tensorrt'."
+                % self.inference_backend
+            )
+            return
+
         if not self.model_path:
             self.get_logger().warn(
                 "No model_path set. person_tracker_node will publish no detections "
@@ -159,8 +305,8 @@ class PersonTrackerNode(Node):
             self.get_logger().error("YOLO ONNX model not found: %s" % self.model_path)
             return
 
-        self.net = self.cv2.dnn.readNetFromONNX(self.model_path)
-        self.get_logger().info("Loaded YOLO ONNX model: %s" % self.model_path)
+        self.backend = OpenCvYoloBackend(self.cv2, self.model_path)
+        self.get_logger().info("Loaded OpenCV YOLO ONNX model: %s" % self.model_path)
 
     def scan_callback(self, msg: LaserScan):
         self.latest_scan = msg
@@ -171,7 +317,7 @@ class PersonTrackerNode(Node):
             if self.frame_count % self.process_every_n_frames != 0:
                 return
 
-        if self.net is None:
+        if self.backend is None:
             self.publish_not_visible(msg.header)
             return
 
@@ -245,9 +391,9 @@ class PersonTrackerNode(Node):
 
     def detect_best_person(self, image):
         blob, scale, pad_x, pad_y = self.make_blob(image)
-        self.net.setInput(blob)
-        output = self.net.forward()
-        self.last_output_shape = tuple(output.shape)
+        result = self.backend.infer(blob)
+        output = result.output
+        self.last_output_shape = result.shape
 
         boxes, scores = self.parse_yolo_output(output, image.shape, scale, pad_x, pad_y)
         if not boxes:
