@@ -27,7 +27,7 @@ def generate_launch_description():
         DeclareLaunchArgument("device", default_value=""),
         Node(
             package="go2_utils",
-            executable="go2_whisper_node",
+            executable="whisper_node",
             name="go2_whisper_node",
             output="screen",
             parameters=[{
