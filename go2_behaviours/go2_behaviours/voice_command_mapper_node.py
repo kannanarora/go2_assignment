@@ -45,7 +45,6 @@ FUZZY_KEYWORDS = [
     if " " not in kw
 ]
 
-
 def _normalize(text):
     cleaned = "".join(c if c.isalnum() or c.isspace() else " " for c in text)
     return " ".join(cleaned.lower().split())

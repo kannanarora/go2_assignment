@@ -93,8 +93,6 @@ class SportClientWrapperNode(Node):
         raw_command = msg.data.strip()
         command = raw_command.lower()
 
-        self.get_logger().info(f'Received command: "{raw_command}"')
-
         handler = self.command_handlers.get(command)
         if handler is None:
             self.get_logger().warn('Unknown command: "%s" — ignoring.' % command)
@@ -110,9 +108,6 @@ class SportClientWrapperNode(Node):
         """
         req = self.build_request(api_id, params)
         self.request_pub.publish(req)
-        self.get_logger().info(
-            'SEND COMMAND REQUEST TO SPORT API api_id=%d, params=%s' % (api_id, params)
-        )
 
     def build_request(
         self,

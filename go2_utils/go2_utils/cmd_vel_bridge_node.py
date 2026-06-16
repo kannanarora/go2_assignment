@@ -54,7 +54,6 @@ class CmdVelBridgeNode(Node):
     def publish_move_request(self, vx: float, vy: float, vyaw: float):
         params = {"x": float(vx), "y": float(vy), "z": float(vyaw)}
         req = self.build_request(SPORT_API_ID_MOVE, params, noreply=True)
-        self.get_logger().info("PUBLISHING MOVE REQUEST")
         self.request_pub.publish(req)
 
     def disable_joystick_for_move(self):

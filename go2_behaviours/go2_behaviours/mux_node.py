@@ -122,7 +122,8 @@ class MuxNode(Node):
             self.robot_state = 'stand'
             self.trigger_behaviour_pub.publish(s)
     
-        print(f'ROBOT STATE IS NOW {self.robot_state}')
+        self.get_logger().info(f"NEW ROBOT STATE: {self.robot_state} FOR TIER: {self.robot_tier}")
+
 
     # Check if message is recent enough to be action
     def is_active(self, source, current_time):
