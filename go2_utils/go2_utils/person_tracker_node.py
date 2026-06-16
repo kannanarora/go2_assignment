@@ -20,6 +20,9 @@ from rclpy.qos import (
 from sensor_msgs.msg import CompressedImage, Image, LaserScan
 from std_msgs.msg import Bool
 
+if "bool" not in np.__dict__:
+    np.bool = np.bool_
+
 
 @dataclass
 class InferenceResult:
