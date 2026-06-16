@@ -20,12 +20,12 @@ wander_node:
   ros__parameters:
     trigger_topic: /wander_cmd
     bark_topic: /bark
-    forward_speed_mps: 0.3
+    forward_speed_mps: 0.66
     turn_speed_radps: 1.26
     min_turn_deg: 35.0
     max_turn_deg: 160.0
-    min_walk_distance_m: 0.1
-    max_walk_distance_m: 0.25
+    min_walk_distance_m: 1.2
+    max_walk_distance_m: 3.5
     stop_duration_s: 0.4
     trick_duration_s: 5.0
     command_rate_hz: 10.0
