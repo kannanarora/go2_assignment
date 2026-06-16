@@ -33,6 +33,7 @@ setup(
             'voice_command_mapper_node = go2_behaviours.voice_command_mapper_node:main',
             'bark_node = go2_behaviours.bark_node:main',
             'random_bark_node = go2_behaviours.random_bark_node:main',
+            'sound_player_node = go2_behaviours.sound_player_node:main',
         ],
     },
 )
