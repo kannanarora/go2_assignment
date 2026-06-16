@@ -40,6 +40,12 @@ class WebRtcCameraNode(Node):
             self.declare_parameter("compressed_max_fps", 5.0).value
         )
         self.jpeg_quality = int(self.declare_parameter("jpeg_quality", 70).value)
+        self.data_channel_id = int(
+            self.declare_parameter("data_channel_id", 2).value
+        )
+        self.enable_audio_transceiver = bool(
+            self.declare_parameter("enable_audio_transceiver", True).value
+        )
 
         self.image_pub = self.create_publisher(
             Image,
@@ -89,6 +95,8 @@ class WebRtcCameraNode(Node):
             token=self.token,
             frame_callback=self.publish_bgr_frame,
             log=self.get_logger(),
+            data_channel_id=self.data_channel_id,
+            enable_audio_transceiver=self.enable_audio_transceiver,
         )
         try:
             self._loop.run_until_complete(self._client.run())
@@ -171,15 +179,26 @@ class WebRtcCameraNode(Node):
 
 
 class Go2WebRtcCameraClient:
-    def __init__(self, robot_ip: str, token: str, frame_callback, log):
+    def __init__(
+        self,
+        robot_ip: str,
+        token: str,
+        frame_callback,
+        log,
+        data_channel_id: int = 2,
+        enable_audio_transceiver: bool = True,
+    ):
         self.robot_ip = robot_ip
         self.token = token
         self.frame_callback = frame_callback
         self.log = log
+        self.data_channel_id = data_channel_id
+        self.enable_audio_transceiver = enable_audio_transceiver
         self.pc = None
         self.data_channel = None
         self.validation_result = "PENDING"
         self._video_request_count = 0
+        self._last_heartbeat_time = 0.0
 
     async def run(self):
         try:
@@ -191,17 +210,29 @@ class Go2WebRtcCameraClient:
 
         self.RTCSessionDescription = RTCSessionDescription
         self.pc = RTCPeerConnection()
-        self.data_channel = self.pc.createDataChannel("data", id=0)
+        self.log.info(
+            "Creating WebRTC data channel id=%d audio_transceiver=%s"
+            % (self.data_channel_id, self.enable_audio_transceiver)
+        )
+        self.data_channel = self.pc.createDataChannel(
+            "data",
+            id=self.data_channel_id,
+            negotiated=False,
+        )
         self.data_channel.on("open", self.on_data_channel_open)
         self.data_channel.on("message", self.on_data_channel_message)
+        self.data_channel.on("close", self.on_data_channel_close)
         self.pc.on("track", self.on_track)
         self.pc.on("connectionstatechange", self.on_connection_state_change)
         self.pc.on("iceconnectionstatechange", self.on_ice_connection_state_change)
         self.pc.on("signalingstatechange", self.on_signaling_state_change)
         self.pc.addTransceiver("video", direction="recvonly")
+        if self.enable_audio_transceiver:
+            self.pc.addTransceiver("audio", direction="sendrecv")
 
         await self.connect()
         while self.pc.connectionState not in ("closed", "failed"):
+            self.send_heartbeat_if_possible()
             if self.pc.connectionState == "connected":
                 self.request_video_if_possible()
             await asyncio.sleep(0.2)
@@ -219,6 +250,9 @@ class Go2WebRtcCameraClient:
         if self.data_channel.readyState != "open":
             self.data_channel._setReadyState("open")
         self.log.info("WebRTC data channel open")
+
+    def on_data_channel_close(self):
+        self.log.info("WebRTC data channel closed")
 
     def on_data_channel_message(self, message):
         if not isinstance(message, str):
@@ -290,6 +324,26 @@ class Go2WebRtcCameraClient:
         self.publish("", data, "rtc_inner_req")
         self.log.info("Requested disable_traffic_saving=%s" % enabled)
 
+    def send_heartbeat_if_possible(self):
+        if self.data_channel is None or self.data_channel.readyState != "open":
+            return
+
+        now = time.monotonic()
+        if now - self._last_heartbeat_time < 2.0:
+            return
+
+        self._last_heartbeat_time = now
+        wall_time = time.localtime()
+        time_in_str = time.strftime("%Y-%m-%d %H:%M:%S", wall_time)
+        self.publish(
+            "",
+            {
+                "timeInStr": time_in_str,
+                "timeInNum": int(time.time()),
+            },
+            "heartbeat",
+        )
+
     def publish(self, topic, data, msg_type="msg"):
         if self.data_channel is None:
             return
@@ -306,6 +360,7 @@ class Go2WebRtcCameraClient:
     async def connect(self):
         offer = await self.pc.createOffer()
         await self.pc.setLocalDescription(offer)
+        self.log.info("Created WebRTC offer with data channel id=%d" % self.data_channel_id)
         sdp_offer = {
             "id": "STA_localNetwork",
             "sdp": self.pc.localDescription.sdp,
@@ -313,6 +368,23 @@ class Go2WebRtcCameraClient:
             "token": self.token,
         }
 
+        try:
+            answer_json = self.fetch_encrypted_peer_answer(sdp_offer)
+        except Exception as exc:
+            self.log.warn(
+                "Encrypted WebRTC signaling failed (%s); trying legacy /offer"
+                % exc
+            )
+            answer_json = self.fetch_legacy_peer_answer(sdp_offer)
+
+        answer = self.RTCSessionDescription(
+            sdp=answer_json["sdp"],
+            type=answer_json["type"],
+        )
+        await self.pc.setRemoteDescription(answer)
+        self.log.info("WebRTC camera connection established")
+
+    def fetch_encrypted_peer_answer(self, sdp_offer):
         data1, data2 = self.fetch_robot_public_key()
         if data2 == 2:
             data1 = self.decrypt_con_notify_data(data1)
@@ -325,13 +397,19 @@ class Go2WebRtcCameraClient:
             "data2": self.rsa_encrypt(aes_key, public_key_pem),
         }
         encrypted_answer = self.post_encrypted_sdp(path_ending, encrypted_body)
-        answer_json = json.loads(self.aes_decrypt(encrypted_answer, aes_key))
-        answer = self.RTCSessionDescription(
-            sdp=answer_json["sdp"],
-            type=answer_json["type"],
+        return json.loads(self.aes_decrypt(encrypted_answer, aes_key))
+
+    def fetch_legacy_peer_answer(self, sdp_offer):
+        import requests
+
+        response = requests.post(
+            "http://%s:8081/offer" % self.robot_ip,
+            json=sdp_offer,
+            headers={"Content-Type": "application/json"},
+            timeout=10,
         )
-        await self.pc.setRemoteDescription(answer)
-        self.log.info("WebRTC camera connection established")
+        response.raise_for_status()
+        return response.json()
 
     def fetch_robot_public_key(self):
         import requests
