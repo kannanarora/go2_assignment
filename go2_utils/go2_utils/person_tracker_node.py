@@ -289,7 +289,7 @@ class PersonTrackerNode(Node):
                 self.get_logger().error(str(exc))
                 self.backend = None
                 if not self.fallback_to_opencv:
-                    return
+                    raise
 
                 self.get_logger().warn(
                     "Falling back to OpenCV backend because TensorRT failed."
