@@ -9,14 +9,14 @@ def generate_launch_description():
     wav_file_arg = DeclareLaunchArgument(
         'wav_file',
         default_value=PathJoinSubstitution(
-            [FindPackageShare('go2_utils'), 'sounds', 'bark.wav']
+            [FindPackageShare('go2_utils'), 'sounds', 'go2_bark.wav']
         ),
         description='Absolute path to the WAV file to upload and play',
     )
 
     file_name_arg = DeclareLaunchArgument(
         'file_name',
-        default_value='bark',
+        default_value='go2_bark',
         description='Name to register the file under in AudioHub',
     )
 
