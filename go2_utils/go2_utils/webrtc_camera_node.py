@@ -12,6 +12,7 @@ import uuid
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image
 
 
@@ -40,11 +41,15 @@ class WebRtcCameraNode(Node):
         )
         self.jpeg_quality = int(self.declare_parameter("jpeg_quality", 70).value)
 
-        self.image_pub = self.create_publisher(Image, self.output_topic, 10)
+        self.image_pub = self.create_publisher(
+            Image,
+            self.output_topic,
+            qos_profile_sensor_data,
+        )
         self.compressed_pub = self.create_publisher(
             CompressedImage,
             self.compressed_output_topic,
-            10,
+            qos_profile_sensor_data,
         )
 
         self._cv2 = None
@@ -214,8 +219,6 @@ class Go2WebRtcCameraClient:
         if self.data_channel.readyState != "open":
             self.data_channel._setReadyState("open")
         self.log.info("WebRTC data channel open")
-        self.request_video()
-        self.disable_traffic_saving(True)
 
     def on_data_channel_message(self, message):
         if not isinstance(message, str):
@@ -271,6 +274,9 @@ class Go2WebRtcCameraClient:
         if self.data_channel is None or self.data_channel.readyState != "open":
             return
 
+        if self.validation_result != "SUCCESS":
+            return
+
         if self._video_request_count >= 5:
             return
 
@@ -289,9 +295,10 @@ class Go2WebRtcCameraClient:
             return
         if self.data_channel.readyState != "open":
             self.log.warn(
-                "WebRTC data channel is %s, sending anyway" % self.data_channel.readyState
+                "WebRTC data channel is %s; not sending message"
+                % self.data_channel.readyState
             )
-            self.data_channel._setReadyState("open")
+            return
 
         payload = {"type": msg_type, "topic": topic, "data": data}
         self.data_channel.send(json.dumps(payload))
