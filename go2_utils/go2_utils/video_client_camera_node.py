@@ -46,12 +46,17 @@ class VideoClientCameraNode(Node):
             ) from exc
 
         try:
-            from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-            from unitree_sdk2py.go2.video.video_client import VideoClient
+            from go2_utils.native_video_client import ChannelFactoryInitialize, VideoClient
         except ImportError as exc:
+            if getattr(exc, "name", "") == "cyclonedds":
+                raise RuntimeError(
+                    "video_client_camera_node requires the Python cyclonedds package "
+                    "on the Jetson."
+                ) from exc
+
             raise RuntimeError(
-                "video_client_camera_node requires unitree_sdk2py. "
-                "Install Unitree's Python SDK on the Jetson."
+                "video_client_camera_node could not import its native VideoClient "
+                "helper."
             ) from exc
 
         self.cv2 = cv2
