@@ -35,14 +35,11 @@ class WanderNode(Node):
         self.max_walk_distance_m = float(
             self.declare_parameter("max_walk_distance_m", 0.25).value
         )
-        self.stop_duration_s = float(
-            self.declare_parameter("stop_duration_s", 0.4).value
-        )
         self.trick_duration = float(
             self.declare_parameter("trick_duration_s", 5).value
         )
         self.command_rate_hz = float(
-            self.declare_parameter("command_rate_hz", 10.0).value
+            self.declare_parameter("command_rate_hz", 1).value
         )
         self.log_rate_hz = float(self.declare_parameter("log_rate_hz", 1.0).value)
         self.startup_command = self.declare_parameter(

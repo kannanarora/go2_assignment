@@ -35,10 +35,13 @@ class MuxNode(Node):
         self.state = {
             'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 0.5}, # Priority 1 (Highest)
             'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 0.2}, # Priority 2
-            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 5}  # Priority 3 (Lowest)
+            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 1}  # Priority 3 (Lowest)
         }
-        self.current_state = 'none'
-        self.wander_begin_timeout = 0.5
+        # General robot state trick/avoid/wander
+        self.active_teir = 'none'
+        self.robot_state = 'none'
+
+        self.wander_begin_timeout = 0.5 # So wander commands are only executed when fresh!
         
         # NODE SUBSCRIPTIONS
         self.wander_sub = self.create_subscription(
@@ -60,8 +63,8 @@ class MuxNode(Node):
             10
         )
 
-        # CONTROL LOOP (runs at 10Hz / every 0.1 seconds)
-        self.timer = self.create_timer(0.1, self.publish_highest_priority)
+        # CONTROL LOOP (runs at 4Hz / every 0.1 seconds)
+        self.timer = self.create_timer(0.25, self.publish_highest_priority)
         self.get_logger().info("Simple Mux Started. Waiting for commands...")
 
     def publish_highest_priority(self):
@@ -69,21 +72,22 @@ class MuxNode(Node):
         selected_msg = Go2Command() # Defaults nil which stops go2
 
         # Check in order of highest priority to lowest
+        # 
         if self.is_active('avoid', now):
             selected_msg = self.state['avoid']['msg']
-            self.current_state = 'avoid'
+            self.active_teir = 'avoid'
         elif self.is_active('trick', now):
             selected_msg = self.state['trick']['msg']
-            self.current_state = 'trick'
+            self.active_teir = 'trick'
         elif self.is_active('wander', now) and self.should_wander():
             selected_msg = self.state['wander']['msg']
-            self.current_state = 'wander'
+            self.active_teir = 'wander'
         else:
-            self.current_state = 'none'
+            self.active_teir = 'none'
         
         self.publish_command(selected_msg)
 
-    # Only begin performing wonder if command is fresh
+    # Only begin performing wander if command is fresh
     def should_wander(self):
         if self.current_state == 'wander':
             return True
@@ -104,17 +108,21 @@ class MuxNode(Node):
     # if trick publish directly to trick
     def publish_command(self, msg):
         if msg.command_type == Go2Command.MOVE:
+            self.robot_state = 'move'
             self.cmd_vel_pub.publish(msg.twist_command)
         elif msg.command_type == Go2Command.TRICK:
             s = String()
-            # If empty command, just make go2 balance stand
+            self.robot_state = msg.trick_name
             s.data = msg.trick_name
             self.trigger_behaviour_pub.publish(s)
         else:
             # If empty command or STAY, just make go2 balance stand
             s = String()
             s.data = 'balance_stand'
+            self.robot_state = 'stand'
             self.trigger_behaviour_pub.publish(s)
+    
+        print(f'ROBOT STATE IS NOW {self.robot_state}')
 
     # Check if message is recent enough to be action
     def is_active(self, source, current_time):
