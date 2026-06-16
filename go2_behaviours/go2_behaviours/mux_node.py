@@ -107,6 +107,8 @@ class MuxNode(Node):
     # If twist publish to cmd_vel
     # if trick publish directly to trick
     def publish_command(self, msg):
+        self.get_logger().info(f"NEW ROBOT STATE: {self.robot_state} FOR TIER: {self.active_teir}")
+
         if msg.command_type == Go2Command.MOVE:
             self.robot_state = 'move'
             self.cmd_vel_pub.publish(msg.twist_command)
@@ -121,8 +123,6 @@ class MuxNode(Node):
             s.data = 'balance_stand'
             self.robot_state = 'stand'
             self.trigger_behaviour_pub.publish(s)
-    
-        self.get_logger().info(f"NEW ROBOT STATE: {self.robot_state} FOR TIER: {self.robot_tier}")
 
 
     # Check if message is recent enough to be action
