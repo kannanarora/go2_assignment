@@ -33,9 +33,9 @@ class MuxNode(Node):
         # We store the latest message and the time it was received
         # TODO tune timeouts
         self.state = {
-            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 0.5}, # Priority 1 (Highest)
-            'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 0.2}, # Priority 2
-            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 1}  # Priority 3 (Lowest)
+            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 1}, # Priority 1 (Highest)
+            'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 1}, # Priority 2
+            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 5}  # Priority 3 (Lowest)
         }
         # General robot state trick/avoid/wander
         self.active_teir = 'none'
