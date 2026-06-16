@@ -109,7 +109,7 @@ class SportClientWrapperNode(Node):
         req = self.build_request(api_id, params)
         self.request_pub.publish(req)
         self.get_logger().info(
-            'Sent request: api_id=%d, params=%s' % (api_id, params)
+            'SEND COMMAND REQUEST TO SPORT API api_id=%d, params=%s' % (api_id, params)
         )
 
     def build_request(
