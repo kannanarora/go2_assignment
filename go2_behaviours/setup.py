@@ -24,8 +24,6 @@ setup(
         'console_scripts': [
             'sport_client_wrapper_node = go2_behaviours.sport_client_wrapper_node:main',
             'safety_monitor_node = go2_behaviours.safety_monitor_node:main',
-            'behaviour_executor_node = go2_behaviours.behaviour_executor_node:main',
-            'behaviour_planner_node = go2_behaviours.behaviour_planner_node:main',
             'front_safety_sit_node = go2_behaviours.front_safety_sit_node:main',
             'wander_node = go2_behaviours.wander_node:main',
             'mux_node = go2_behaviours.mux_node:main',
