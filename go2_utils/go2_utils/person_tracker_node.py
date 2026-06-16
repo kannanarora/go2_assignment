@@ -255,6 +255,18 @@ class PersonTrackerNode(Node):
         self.input_height = int(self.declare_parameter("input_height", 640).value)
         self.min_confidence = float(self.declare_parameter("min_confidence", 0.10).value)
         self.nms_threshold = float(self.declare_parameter("nms_threshold", 0.45).value)
+        self.min_bbox_width_ratio = float(
+            self.declare_parameter("min_bbox_width_ratio", 0.03).value
+        )
+        self.min_bbox_height_ratio = float(
+            self.declare_parameter("min_bbox_height_ratio", 0.12).value
+        )
+        self.debug_candidate_min_score = float(
+            self.declare_parameter("debug_candidate_min_score", 0.03).value
+        )
+        self.debug_max_candidates = int(
+            self.declare_parameter("debug_max_candidates", 8).value
+        )
         self.process_every_n_frames = int(
             self.declare_parameter("process_every_n_frames", 1).value
         )
@@ -310,6 +322,8 @@ class PersonTrackerNode(Node):
         self.last_debug_compressed_publish_time = 0.0
         self.last_best_person_score = 0.0
         self.last_candidate_count = 0
+        self.last_rejected_candidate_count = 0
+        self.last_debug_candidates = []
         self.last_output_shape = None
 
         self.load_model()
@@ -494,6 +508,10 @@ class PersonTrackerNode(Node):
         if not boxes:
             return None
 
+        boxes, scores = self.filter_person_boxes_by_size(boxes, scores, image.shape)
+        if not boxes:
+            return None
+
         indices = self.cv2.dnn.NMSBoxes(
             boxes,
             scores,
@@ -508,6 +526,31 @@ class PersonTrackerNode(Node):
         best_index = max(candidate_indices, key=lambda index: scores[index])
         x, y, w, h = boxes[best_index]
         return x, y, w, h, scores[best_index]
+
+    def filter_person_boxes_by_size(self, boxes, scores, image_shape):
+        if self.min_bbox_width_ratio <= 0.0 and self.min_bbox_height_ratio <= 0.0:
+            for box, score in zip(boxes, scores):
+                self.update_debug_candidate(box, score, "candidate")
+            return boxes, scores
+
+        image_h, image_w = image_shape[:2]
+        min_w = max(1.0, float(image_w) * self.min_bbox_width_ratio)
+        min_h = max(1.0, float(image_h) * self.min_bbox_height_ratio)
+        kept_boxes = []
+        kept_scores = []
+
+        for box, score in zip(boxes, scores):
+            _, _, w, h = box
+            if float(w) < min_w or float(h) < min_h:
+                self.last_rejected_candidate_count += 1
+                self.update_debug_candidate(box, score, "small")
+                continue
+
+            kept_boxes.append(box)
+            kept_scores.append(score)
+            self.update_debug_candidate(box, score, "candidate")
+
+        return kept_boxes, kept_scores
 
     def is_visually_nearby(self, bbox_height_px: float, image_height_px: int) -> bool:
         if image_height_px <= 0:
@@ -548,6 +591,8 @@ class PersonTrackerNode(Node):
         output = np.squeeze(output)
         self.last_best_person_score = 0.0
         self.last_candidate_count = 0
+        self.last_rejected_candidate_count = 0
+        self.last_debug_candidates = []
 
         if output.ndim != 2:
             return [], []
@@ -567,23 +612,61 @@ class PersonTrackerNode(Node):
             cx, cy, w, h, score = parsed
             self.last_best_person_score = max(self.last_best_person_score, score)
             if score < self.min_confidence:
+                if score >= self.debug_candidate_min_score:
+                    self.update_debug_candidate(
+                        self.yolo_box_to_image_box(
+                            cx,
+                            cy,
+                            w,
+                            h,
+                            image_w,
+                            image_h,
+                            scale,
+                            pad_x,
+                            pad_y,
+                        ),
+                        score,
+                        "weak",
+                    )
                 continue
 
             self.last_candidate_count += 1
-            x = (cx - w * 0.5 - pad_x) / scale
-            y = (cy - h * 0.5 - pad_y) / scale
-            w = w / scale
-            h = h / scale
-
-            x = max(0.0, min(float(image_w - 1), x))
-            y = max(0.0, min(float(image_h - 1), y))
-            w = max(1.0, min(float(image_w) - x, w))
-            h = max(1.0, min(float(image_h) - y, h))
-
-            boxes.append([int(x), int(y), int(w), int(h)])
+            boxes.append(
+                self.yolo_box_to_image_box(
+                    cx,
+                    cy,
+                    w,
+                    h,
+                    image_w,
+                    image_h,
+                    scale,
+                    pad_x,
+                    pad_y,
+                )
+            )
             scores.append(float(score))
 
         return boxes, scores
+
+    def yolo_box_to_image_box(self, cx, cy, w, h, image_w, image_h, scale, pad_x, pad_y):
+        x = (cx - w * 0.5 - pad_x) / scale
+        y = (cy - h * 0.5 - pad_y) / scale
+        w = w / scale
+        h = h / scale
+
+        x = max(0.0, min(float(image_w - 1), x))
+        y = max(0.0, min(float(image_h - 1), y))
+        w = max(1.0, min(float(image_w) - x, w))
+        h = max(1.0, min(float(image_h) - y, h))
+        return [int(x), int(y), int(w), int(h)]
+
+    def update_debug_candidate(self, box, score, state):
+        if len(self.last_debug_candidates) < max(self.debug_max_candidates * 3, 1):
+            self.last_debug_candidates.append((box, float(score), state))
+            self.last_debug_candidates.sort(key=lambda item: item[1], reverse=True)
+            self.last_debug_candidates = self.last_debug_candidates[
+                : max(self.debug_max_candidates, 1)
+            ]
 
     def parse_yolo_row(self, row, apply_threshold=True):
         if len(row) < 6:
@@ -644,7 +727,9 @@ class PersonTrackerNode(Node):
             return
 
         debug = image.copy()
-        label = "no person %.2f" % self.last_best_person_score
+        self.draw_debug_guides(debug)
+        self.draw_debug_candidates(debug)
+        label = "no person best %.2f" % self.last_best_person_score
 
         if detection is not None:
             x, y, w, h, confidence = detection
@@ -657,6 +742,12 @@ class PersonTrackerNode(Node):
             )
             label = "person %.2f" % confidence
 
+        stats = "best %.2f cand %d reject %d shape %s" % (
+            self.last_best_person_score,
+            self.last_candidate_count,
+            self.last_rejected_candidate_count,
+            self.last_output_shape,
+        )
         self.cv2.putText(
             debug,
             label,
@@ -664,6 +755,16 @@ class PersonTrackerNode(Node):
             self.cv2.FONT_HERSHEY_SIMPLEX,
             0.8,
             (0, 255, 0),
+            2,
+            self.cv2.LINE_AA,
+        )
+        self.cv2.putText(
+            debug,
+            stats,
+            (12, 56),
+            self.cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (255, 255, 255),
             2,
             self.cv2.LINE_AA,
         )
@@ -686,6 +787,63 @@ class PersonTrackerNode(Node):
         msg.step = int(debug.shape[1] * 3)
         msg.data = debug.tobytes()
         self.debug_pub.publish(msg)
+
+    def draw_debug_guides(self, debug):
+        height, width = debug.shape[:2]
+        center_x = width // 2
+        self.cv2.line(debug, (center_x, 0), (center_x, height), (255, 255, 0), 1)
+
+        if self.min_bbox_width_ratio <= 0.0 and self.min_bbox_height_ratio <= 0.0:
+            return
+
+        min_w = int(round(width * self.min_bbox_width_ratio))
+        min_h = int(round(height * self.min_bbox_height_ratio))
+        x0 = max(0, width - min_w - 12)
+        y0 = max(0, height - min_h - 12)
+        self.cv2.rectangle(
+            debug,
+            (x0, y0),
+            (min(width - 1, x0 + min_w), min(height - 1, y0 + min_h)),
+            (180, 180, 180),
+            1,
+        )
+        self.cv2.putText(
+            debug,
+            "min",
+            (x0, max(14, y0 - 4)),
+            self.cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (180, 180, 180),
+            1,
+            self.cv2.LINE_AA,
+        )
+
+    def draw_debug_candidates(self, debug):
+        colors = {
+            "weak": (0, 140, 255),
+            "small": (0, 0, 255),
+            "candidate": (255, 180, 0),
+        }
+        for box, score, state in reversed(self.last_debug_candidates):
+            x, y, w, h = box
+            color = colors.get(state, (255, 255, 255))
+            self.cv2.rectangle(
+                debug,
+                (int(x), int(y)),
+                (int(x + w), int(y + h)),
+                color,
+                1,
+            )
+            self.cv2.putText(
+                debug,
+                "%s %.2f %dx%d" % (state, score, w, h),
+                (int(x), max(14, int(y) - 4)),
+                self.cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                color,
+                1,
+                self.cv2.LINE_AA,
+            )
 
     def should_publish_debug_compressed(self):
         if self.debug_compressed_max_fps <= 0.0:
