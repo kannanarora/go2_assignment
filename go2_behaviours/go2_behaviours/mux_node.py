@@ -75,7 +75,7 @@ class MuxNode(Node):
         elif self.is_active('trick', now):
             selected_msg = self.state['trick']['msg']
             self.current_state = 'trick'
-        elif self.is_active('wander', now) and self.should_wonder():
+        elif self.is_active('wander', now) and self.should_wander():
             selected_msg = self.state['wander']['msg']
             self.current_state = 'wander'
         else:
