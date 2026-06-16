@@ -8,5 +8,5 @@ webrtc_camera_node:
     raw_max_fps: 10.0
     compressed_max_fps: 5.0
     jpeg_quality: 70
-    data_channel_id: 2
+    data_channel_id: -1
     enable_audio_transceiver: true

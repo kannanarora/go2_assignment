@@ -82,11 +82,9 @@ class GStreamerCameraNode(Node):
 
         return (
             "udpsrc address=%s port=%d multicast-iface=%s "
-            "! queue leaky=downstream max-size-buffers=1 max-size-bytes=0 max-size-time=0 "
             "! application/x-rtp, media=video, encoding-name=H264 "
             "! rtph264depay "
             "! h264parse "
-            "! queue leaky=downstream max-size-buffers=1 max-size-bytes=0 max-size-time=0 "
             "%s "
             "! appsink name=sink emit-signals=true max-buffers=1 drop=true sync=false"
         ) % (
@@ -109,7 +107,6 @@ class GStreamerCameraNode(Node):
             self.get_logger().info("Using NVIDIA GStreamer H264 decoder")
             return (
                 "! nvv4l2decoder enable-max-performance=1 disable-dpb=true "
-                "! queue leaky=downstream max-size-buffers=1 max-size-bytes=0 max-size-time=0 "
                 "! %s "
                 "! video/x-raw,width=%d,height=%d,format=BGRx "
                 "! videoconvert "
@@ -119,7 +116,6 @@ class GStreamerCameraNode(Node):
         self.get_logger().info("Using software GStreamer H264 decoder")
         return (
             "! avdec_h264 "
-            "! queue leaky=downstream max-size-buffers=1 max-size-bytes=0 max-size-time=0 "
             "! videoconvert "
             "! videoscale "
             "! video/x-raw,width=%d,height=%d,format=BGR"

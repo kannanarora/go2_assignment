@@ -37,7 +37,7 @@ def generate_launch_description():
         [
             DeclareLaunchArgument(
                 "camera_source",
-                default_value="video_client",
+                default_value="gstreamer",
                 description="Camera source: video_client or gstreamer",
             ),
             IncludeLaunchDescription(

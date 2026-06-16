@@ -41,7 +41,7 @@ class WebRtcCameraNode(Node):
         )
         self.jpeg_quality = int(self.declare_parameter("jpeg_quality", 70).value)
         self.data_channel_id = int(
-            self.declare_parameter("data_channel_id", 2).value
+            self.declare_parameter("data_channel_id", -1).value
         )
         self.enable_audio_transceiver = bool(
             self.declare_parameter("enable_audio_transceiver", True).value
@@ -185,7 +185,7 @@ class Go2WebRtcCameraClient:
         token: str,
         frame_callback,
         log,
-        data_channel_id: int = 2,
+        data_channel_id: int = -1,
         enable_audio_transceiver: bool = True,
     ):
         self.robot_ip = robot_ip
@@ -210,15 +210,21 @@ class Go2WebRtcCameraClient:
 
         self.RTCSessionDescription = RTCSessionDescription
         self.pc = RTCPeerConnection()
+        channel_id_label = "auto"
+        if self.data_channel_id >= 0:
+            channel_id_label = str(self.data_channel_id)
         self.log.info(
-            "Creating WebRTC data channel id=%d audio_transceiver=%s"
-            % (self.data_channel_id, self.enable_audio_transceiver)
+            "Creating WebRTC data channel id=%s audio_transceiver=%s"
+            % (channel_id_label, self.enable_audio_transceiver)
         )
-        self.data_channel = self.pc.createDataChannel(
-            "data",
-            id=self.data_channel_id,
-            negotiated=False,
-        )
+        if self.data_channel_id >= 0:
+            self.data_channel = self.pc.createDataChannel(
+                "data",
+                id=self.data_channel_id,
+                negotiated=False,
+            )
+        else:
+            self.data_channel = self.pc.createDataChannel("data")
         self.data_channel.on("open", self.on_data_channel_open)
         self.data_channel.on("message", self.on_data_channel_message)
         self.data_channel.on("close", self.on_data_channel_close)
@@ -226,6 +232,7 @@ class Go2WebRtcCameraClient:
         self.pc.on("connectionstatechange", self.on_connection_state_change)
         self.pc.on("iceconnectionstatechange", self.on_ice_connection_state_change)
         self.pc.on("signalingstatechange", self.on_signaling_state_change)
+        self.pc.on("icegatheringstatechange", self.on_ice_gathering_state_change)
         self.pc.addTransceiver("video", direction="recvonly")
         if self.enable_audio_transceiver:
             self.pc.addTransceiver("audio", direction="sendrecv")
@@ -245,6 +252,9 @@ class Go2WebRtcCameraClient:
 
     def on_signaling_state_change(self):
         self.log.info("WebRTC signaling state: %s" % self.pc.signalingState)
+
+    def on_ice_gathering_state_change(self):
+        self.log.info("WebRTC ICE gathering state: %s" % self.pc.iceGatheringState)
 
     def on_data_channel_open(self):
         if self.data_channel.readyState != "open":
@@ -360,7 +370,10 @@ class Go2WebRtcCameraClient:
     async def connect(self):
         offer = await self.pc.createOffer()
         await self.pc.setLocalDescription(offer)
-        self.log.info("Created WebRTC offer with data channel id=%d" % self.data_channel_id)
+        channel_id_label = "auto"
+        if self.data_channel_id >= 0:
+            channel_id_label = str(self.data_channel_id)
+        self.log.info("Created WebRTC offer with data channel id=%s" % channel_id_label)
         sdp_offer = {
             "id": "STA_localNetwork",
             "sdp": self.pc.localDescription.sdp,
@@ -381,8 +394,33 @@ class Go2WebRtcCameraClient:
             sdp=answer_json["sdp"],
             type=answer_json["type"],
         )
+        self.log_remote_sdp_summary(answer_json["sdp"])
         await self.pc.setRemoteDescription(answer)
         self.log.info("WebRTC camera connection established")
+
+    def log_remote_sdp_summary(self, sdp):
+        media = []
+        current = []
+        for line in sdp.splitlines():
+            if line.startswith("m="):
+                if current:
+                    media.append(current)
+                current = [line]
+            elif current and (
+                line.startswith("a=mid:")
+                or line.startswith("a=sctp-port:")
+                or line.startswith("a=setup:")
+                or line.startswith("a=inactive")
+                or line.startswith("a=recvonly")
+                or line.startswith("a=sendonly")
+                or line.startswith("a=sendrecv")
+            ):
+                current.append(line)
+        if current:
+            media.append(current)
+
+        for section in media:
+            self.log.info("Remote SDP media: %s" % " | ".join(section))
 
     def fetch_encrypted_peer_answer(self, sdp_offer):
         data1, data2 = self.fetch_robot_public_key()
