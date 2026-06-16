@@ -3,6 +3,7 @@
 import math
 import os
 import time
+import ctypes
 from dataclasses import dataclass
 
 import numpy as np
@@ -37,6 +38,96 @@ class OpenCvYoloBackend:
         return InferenceResult(output=output, shape=tuple(output.shape))
 
 
+class CudaDriver:
+    def __init__(self):
+        try:
+            self.lib = ctypes.CDLL("libcuda.so.1")
+        except OSError as exc:
+            raise RuntimeError(
+                "TensorRT backend could not load libcuda.so.1. "
+                "Run this on the Jetson with NVIDIA drivers available."
+            ) from exc
+
+        self._cu_mem_alloc = self._symbol("cuMemAlloc_v2", "cuMemAlloc")
+        self._cu_mem_free = self._symbol("cuMemFree_v2", "cuMemFree")
+        self._cu_memcpy_htod_async = self._symbol(
+            "cuMemcpyHtoDAsync_v2", "cuMemcpyHtoDAsync"
+        )
+        self._cu_memcpy_dtoh_async = self._symbol(
+            "cuMemcpyDtoHAsync_v2", "cuMemcpyDtoHAsync"
+        )
+        self._cu_ctx_create = self._symbol("cuCtxCreate_v2", "cuCtxCreate")
+
+        self._check(self.lib.cuInit(0), "cuInit")
+
+        device = ctypes.c_int()
+        self._check(self.lib.cuDeviceGet(ctypes.byref(device), 0), "cuDeviceGet")
+
+        self.context = ctypes.c_void_p()
+        self._check(
+            self._cu_ctx_create(ctypes.byref(self.context), 0, device),
+            "cuCtxCreate",
+        )
+
+        self.stream = ctypes.c_void_p()
+        self._check(
+            self.lib.cuStreamCreate(ctypes.byref(self.stream), 0),
+            "cuStreamCreate",
+        )
+        self.allocations = []
+
+    @property
+    def stream_handle(self) -> int:
+        return int(self.stream.value or 0)
+
+    def _check(self, result: int, operation: str):
+        if result != 0:
+            raise RuntimeError("%s failed with CUDA error code %d" % (operation, result))
+
+    def _symbol(self, preferred: str, fallback: str):
+        try:
+            return getattr(self.lib, preferred)
+        except AttributeError:
+            return getattr(self.lib, fallback)
+
+    def host_empty(self, size: int, dtype):
+        return np.empty(size, dtype=dtype)
+
+    def mem_alloc(self, nbytes: int) -> int:
+        device_ptr = ctypes.c_uint64()
+        self._check(
+            self._cu_mem_alloc(ctypes.byref(device_ptr), ctypes.c_size_t(nbytes)),
+            "cuMemAlloc",
+        )
+        self.allocations.append(device_ptr.value)
+        return int(device_ptr.value)
+
+    def memcpy_htod_async(self, device_ptr: int, host: np.ndarray):
+        self._check(
+            self._cu_memcpy_htod_async(
+                ctypes.c_uint64(device_ptr),
+                ctypes.c_void_p(host.ctypes.data),
+                ctypes.c_size_t(host.nbytes),
+                self.stream,
+            ),
+            "cuMemcpyHtoDAsync",
+        )
+
+    def memcpy_dtoh_async(self, host: np.ndarray, device_ptr: int):
+        self._check(
+            self._cu_memcpy_dtoh_async(
+                ctypes.c_void_p(host.ctypes.data),
+                ctypes.c_uint64(device_ptr),
+                ctypes.c_size_t(host.nbytes),
+                self.stream,
+            ),
+            "cuMemcpyDtoHAsync",
+        )
+
+    def synchronize(self):
+        self._check(self.lib.cuStreamSynchronize(self.stream), "cuStreamSynchronize")
+
+
 class TensorRtYoloBackend:
     def __init__(self, engine_path: str, input_width: int, input_height: int):
         if not engine_path:
@@ -46,16 +137,15 @@ class TensorRtYoloBackend:
 
         try:
             import tensorrt as trt
-            import pycuda.autoinit  # noqa: F401
-            import pycuda.driver as cuda
         except ImportError as exc:
             raise RuntimeError(
-                "TensorRT backend requires Python packages 'tensorrt' and 'pycuda' "
-                "on the Jetson."
+                "TensorRT engine exists, but Python cannot import 'tensorrt'. "
+                "Install the Jetson TensorRT Python bindings, usually with "
+                "'sudo apt install python3-libnvinfer'."
             ) from exc
 
         self.trt = trt
-        self.cuda = cuda
+        self.cuda = CudaDriver()
         self.input_width = input_width
         self.input_height = input_height
         self.logger = trt.Logger(trt.Logger.WARNING)
@@ -68,7 +158,6 @@ class TensorRtYoloBackend:
             raise RuntimeError("Failed to deserialize TensorRT engine: %s" % engine_path)
 
         self.context = self.engine.create_execution_context()
-        self.stream = cuda.Stream()
         self.input_index = None
         self.output_index = None
         self.bindings = [0] * self.engine.num_bindings
@@ -96,7 +185,7 @@ class TensorRtYoloBackend:
     def _allocate_binding(self, index: int, shape: tuple):
         dtype = self.trt.nptype(self.engine.get_binding_dtype(index))
         size = int(np.prod(shape))
-        host = self.cuda.pagelocked_empty(size, dtype)
+        host = self.cuda.host_empty(size, dtype)
         device = self.cuda.mem_alloc(host.nbytes)
         self.host_buffers[index] = host
         self.device_buffers[index] = device
@@ -113,24 +202,16 @@ class TensorRtYoloBackend:
 
         host_input = self.host_buffers[self.input_index]
         np.copyto(host_input, blob.ravel())
-        self.cuda.memcpy_htod_async(
-            self.device_buffers[self.input_index],
-            host_input,
-            self.stream,
-        )
+        self.cuda.memcpy_htod_async(self.device_buffers[self.input_index], host_input)
 
         self.context.execute_async_v2(
             bindings=self.bindings,
-            stream_handle=self.stream.handle,
+            stream_handle=self.cuda.stream_handle,
         )
 
         host_output = self.host_buffers[self.output_index]
-        self.cuda.memcpy_dtoh_async(
-            host_output,
-            self.device_buffers[self.output_index],
-            self.stream,
-        )
-        self.stream.synchronize()
+        self.cuda.memcpy_dtoh_async(host_output, self.device_buffers[self.output_index])
+        self.cuda.synchronize()
 
         output_shape = tuple(self.context.get_binding_shape(self.output_index))
         output = np.array(host_output, copy=True).reshape(output_shape)
