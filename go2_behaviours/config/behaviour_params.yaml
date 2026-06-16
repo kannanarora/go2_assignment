@@ -48,7 +48,7 @@ wander_node:
 obstacle_avoid_node:
   ros__parameters:
     scan_topic: /front_scan
-    cmd_vel_topic: /avoid_cmd
+    command_topic: /avoidance_cmd
     turn_speed_radps: 1.26
     avoid_turn_speed_radps: 1.35
     avoid_threshold_m: 1.45

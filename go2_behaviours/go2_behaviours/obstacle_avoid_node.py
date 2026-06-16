@@ -9,7 +9,7 @@ import random
 import time
 
 import rclpy
-from geometry_msgs.msg import Twist
+from go2_interfaces.msg import Go2Command
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -25,8 +25,8 @@ class ObstacleAvoidNode(Node):
         super().__init__("obstacle_avoid_node")
 
         self.scan_topic = self.declare_parameter("scan_topic", "/front_scan").value
-        self.cmd_vel_topic = self.declare_parameter(
-            "cmd_vel_topic", "/avoid_cmd"
+        self.command_topic = self.declare_parameter(
+            "command_topic", "/avoidance_cmd"
         ).value
 
         self.turn_speed_radps = float(
@@ -91,7 +91,9 @@ class ObstacleAvoidNode(Node):
             durability=DurabilityPolicy.VOLATILE,
         )
 
-        self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
+        self.command_pub = self.create_publisher(
+            Go2Command, self.command_topic, 10
+        )
         self.scan_sub = self.create_subscription(
             LaserScan,
             self.scan_topic,
@@ -103,10 +105,10 @@ class ObstacleAvoidNode(Node):
         self.timer = self.create_timer(timer_period, self.tick)
 
         self.get_logger().info(
-            "ObstacleAvoidNode publishing to %s from %s "
+            "ObstacleAvoidNode publishing Go2Command to %s from %s "
             "(avoid<%.2fm, clear>%.2fm)"
             % (
-                self.cmd_vel_topic,
+                self.command_topic,
                 self.scan_topic,
                 self.avoid_threshold_m,
                 self.clear_threshold_m,
@@ -230,11 +232,16 @@ class ObstacleAvoidNode(Node):
         return max(0, min(idx, len(scan.ranges) - 1))
 
     def publish_move(self, vx: float, vyaw: float):
-        msg = Twist()
-        msg.linear.x = float(vx)
-        msg.linear.y = 0.0
-        msg.angular.z = float(vyaw)
-        self.cmd_vel_pub.publish(msg)
+        msg = Go2Command()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.command_type = Go2Command.MOVE
+        msg.twist_command.linear.x = float(vx)
+        msg.twist_command.linear.y = 0.0
+        msg.twist_command.linear.z = 0.0
+        msg.twist_command.angular.x = 0.0
+        msg.twist_command.angular.y = 0.0
+        msg.twist_command.angular.z = float(vyaw)
+        self.command_pub.publish(msg)
 
     def maybe_log(self, front: float, status: str):
         if self.log_rate_hz <= 0.0:
