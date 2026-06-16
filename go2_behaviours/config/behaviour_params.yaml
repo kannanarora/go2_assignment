@@ -49,3 +49,37 @@ obstacle_avoid_node:
     scan_timeout_s: 1.5
     command_rate_hz: 10.0
     log_rate_hz: 0.0
+
+voice_command_mapper_node:
+  ros__parameters:
+    text_topic: /go2/whisper/text
+    command_topic: /trick_cmd
+    cooldown_sec: 2.0
+    fuzzy_threshold: 0.8
+    forward_speed_mps: 0.66
+    turn_speed_radps: 1.26
+    trick_hold_sec: 0.6
+    move_duration_sec: 2.0
+    turn_duration_sec: 1.0
+    command_rate_hz: 10.0
+
+sound_player_node:
+  ros__parameters:
+    trigger_topic: /trigger_behaviour
+    sound_map:
+      - bark:go2_bark
+      - speak:go2_bark
+      - bark2:go2_bark2
+      - bark3:go2_bark3
+      - breathe:go2_breathing
+      - cry:go2_crying
+      - pant:go2_panting1
+      - pant2:go2_panting2
+      - pant3:go2_panting3
+
+random_bark_node:
+  ros__parameters:
+    trigger_topic: /trigger_behaviour
+    bark_token: bark
+    min_interval_s: 8.0
+    max_interval_s: 30.0

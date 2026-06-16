@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 
 """
-Map Whisper transcriptions to robot behaviour ie. bridges the speech-to-text output to the behaviour commands
+Map Whisper transcriptions to subsumption voice commands.
 
-  /go2/whisper/text  (std_msgs/String, free text ex. "sit down")-> keyword match (then fuzzy fallback) -> token ex. "sit"
-      /trigger_behaviour (std_msgs/String, token consumed by sport_client_wrapper_node)
+  /go2/whisper/text  (std_msgs/String, free text e.g. "sit down")
+      -> keyword match (then fuzzy fallback) -> token e.g. "sit"
+      -> Go2Command on /trick_cmd (consumed by mux_node)
 
-Matching is keyword-first, if no keyword is found, a conservative fuzzy
-fallback rescues near-misses on short words (e.g. "six"/"sid" -> "sit").
+Trick tokens are forwarded by the MUX to /trigger_behaviour (sport client,
+sound_player). Move tokens are forwarded to /cmd_vel via the MUX.
 """
 
 import time
 from difflib import SequenceMatcher
 
 import rclpy
+from geometry_msgs.msg import Twist
+from go2_interfaces.msg import Go2Command
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -31,6 +34,9 @@ COMMAND_RULES = [
     (("come", "walk", "forward"), "walk"),
 ]
 
+TRICK_TOKENS = {"sit", "stand", "lie_down", "stop", "hello", "bark", "dance"}
+MOVE_TOKENS = {"walk", "turn_left", "turn_right"}
+
 # Single word keywords used for the fuzzy fallback (phrases are skipped - they only ever match exactly)
 FUZZY_KEYWORDS = [
     (kw, token)
@@ -46,13 +52,7 @@ def _normalize(text):
 
 
 def match_command(text, fuzzy_threshold=0.8, fuzzy_margin=0.1):
-    """Match a transcription to a behaviour token, with reasoning
-
-    Keyword (substring) match first. If nothing matches, fall back to the
-    closest single-word keyword by character similarity, but only accept it
-    when it clears fuzzy_threshold AND beats the runner-up token by
-    fuzzy_margin (so ambiguous matches are rejected rather than guessed)
-    """
+    """Match a transcription to a behaviour token, with reasoning."""
     normalized = _normalize(text)
     if not normalized:
         return None, "empty"
@@ -94,34 +94,93 @@ def match_command(text, fuzzy_threshold=0.8, fuzzy_margin=0.1):
     )
 
 
+def build_go2_command(token, forward_speed_mps, turn_speed_radps):
+    cmd = Go2Command()
+    if token in TRICK_TOKENS:
+        cmd.command_type = Go2Command.TRICK
+        cmd.trick_name = token
+        return cmd
+
+    twist = Twist()
+    if token == "walk":
+        twist.linear.x = float(forward_speed_mps)
+    elif token == "turn_left":
+        twist.angular.z = float(turn_speed_radps)
+    elif token == "turn_right":
+        twist.angular.z = -float(turn_speed_radps)
+    else:
+        return None
+
+    cmd.command_type = Go2Command.MOVE
+    cmd.twist_command = twist
+    return cmd
+
+
 class VoiceCommandMapperNode(Node):
     def __init__(self):
         super().__init__("voice_command_mapper_node")
 
         self.declare_parameter("text_topic", "/go2/whisper/text")
-        self.declare_parameter("trigger_topic", "/trigger_behaviour")
+        self.declare_parameter("command_topic", "/trick_cmd")
         self.declare_parameter("cooldown_sec", 2.0)
         self.declare_parameter("fuzzy_threshold", 0.8)
+        self.declare_parameter("forward_speed_mps", 0.66)
+        self.declare_parameter("turn_speed_radps", 1.26)
+        self.declare_parameter("trick_hold_sec", 0.6)
+        self.declare_parameter("move_duration_sec", 2.0)
+        self.declare_parameter("turn_duration_sec", 1.0)
+        self.declare_parameter("command_rate_hz", 10.0)
 
         self.text_topic = self.get_parameter("text_topic").value
-        self.trigger_topic = self.get_parameter("trigger_topic").value
+        self.command_topic = self.get_parameter("command_topic").value
         self.cooldown_sec = float(self.get_parameter("cooldown_sec").value)
         self.fuzzy_threshold = float(self.get_parameter("fuzzy_threshold").value)
+        self.forward_speed_mps = float(self.get_parameter("forward_speed_mps").value)
+        self.turn_speed_radps = float(self.get_parameter("turn_speed_radps").value)
+        self.trick_hold_sec = float(self.get_parameter("trick_hold_sec").value)
+        self.move_duration_sec = float(self.get_parameter("move_duration_sec").value)
+        self.turn_duration_sec = float(self.get_parameter("turn_duration_sec").value)
+        command_rate_hz = float(self.get_parameter("command_rate_hz").value)
 
         self.last_fire = 0.0
+        self.active_cmd = None
+        self.active_until = 0.0
 
-        self.pub = self.create_publisher(String, self.trigger_topic, 10)
+        self.pub = self.create_publisher(Go2Command, self.command_topic, 10)
         self.sub = self.create_subscription(
             String,
             self.text_topic,
             self.text_callback,
             10,
         )
+        self.timer = self.create_timer(1.0 / max(command_rate_hz, 1.0), self.republish_active)
 
         self.get_logger().info(
             "Mapping %s -> %s (cooldown=%.1fs)"
-            % (self.text_topic, self.trigger_topic, self.cooldown_sec)
+            % (self.text_topic, self.command_topic, self.cooldown_sec)
         )
+
+    def hold_duration_for(self, token):
+        if token in TRICK_TOKENS:
+            return self.trick_hold_sec
+        if token in ("turn_left", "turn_right"):
+            return self.turn_duration_sec
+        if token == "walk":
+            return self.move_duration_sec
+        return self.trick_hold_sec
+
+    def republish_active(self):
+        if self.active_cmd is None:
+            return
+        if time.monotonic() >= self.active_until:
+            self.active_cmd = None
+            return
+        self.pub.publish(self.active_cmd)
+
+    def activate_command(self, cmd, hold_sec):
+        self.active_cmd = cmd
+        self.active_until = time.monotonic() + hold_sec
+        self.pub.publish(cmd)
 
     def text_callback(self, msg: String):
         text = msg.data.strip()
@@ -139,9 +198,12 @@ class VoiceCommandMapperNode(Node):
             return
         self.last_fire = now
 
-        out = String()
-        out.data = token
-        self.pub.publish(out)
+        cmd = build_go2_command(token, self.forward_speed_mps, self.turn_speed_radps)
+        if cmd is None:
+            self.get_logger().warn("no Go2Command mapping for '%s'" % token)
+            return
+
+        self.activate_command(cmd, self.hold_duration_for(token))
         self.get_logger().info("'%s' -> %s [%s]" % (text, token, detail))
 
 
