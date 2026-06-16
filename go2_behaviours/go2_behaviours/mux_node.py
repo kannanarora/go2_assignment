@@ -89,7 +89,7 @@ class MuxNode(Node):
 
     # Only begin performing wander if command is fresh
     def should_wander(self):
-        if self.current_state == 'wander':
+        if self.active_teir == 'wander':
             return True
         
         last_time = self.state['wander']['time']
