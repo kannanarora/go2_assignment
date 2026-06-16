@@ -29,6 +29,7 @@ SPORT_API_ID_SWITCH_JOYSTICK = 1027
 SPORT_API_ID_STRETCH = 1017
 SPORT_API_ID_FREEWALK = 2045
 SPORT_API_ID_FREEWALK_AVOID = 2048
+SPORT_API_ID_DANCE1 = 1022          # Dance1 routine (Dance2 is 1023)
 
 
 class SportClientWrapperNode(Node):
@@ -72,6 +73,7 @@ class SportClientWrapperNode(Node):
             'sit': lambda: self.send_request(SPORT_API_ID_SIT),
             'rise_sit': lambda: self.send_request(SPORT_API_ID_RISESIT),
             'hello': lambda: self.send_request(SPORT_API_ID_HELLO),
+            'dance': lambda: self.send_request(SPORT_API_ID_DANCE1),
             'joystick_on': lambda: self.send_request(
                 SPORT_API_ID_SWITCH_JOYSTICK, {'data': True}
             ),
