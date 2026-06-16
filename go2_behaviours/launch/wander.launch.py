@@ -48,8 +48,21 @@ def generate_launch_description():
             ),
             Node(
                 package="go2_behaviours",
+                executable="mux_node",
+                name="mux_node",
+                output="screen",
+            ),
+            Node(
+                package="go2_behaviours",
                 executable="wander_node",
                 name="wander_node",
+                output="screen",
+                parameters=[params_file],
+            ),
+            Node(
+                package="go2_behaviours",
+                executable="obstacle_avoid_node",
+                name="obstacle_avoid_node",
                 output="screen",
                 parameters=[params_file],
             ),
