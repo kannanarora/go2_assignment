@@ -26,6 +26,7 @@ class GStreamerCameraNode(Node):
         self.height = int(self.declare_parameter("height", 720).value)
         self.output_width = int(self.declare_parameter("output_width", 640).value)
         self.output_height = int(self.declare_parameter("output_height", 360).value)
+        self.decoder = self.declare_parameter("decoder", "auto").value
         self.publish_raw = bool(self.declare_parameter("publish_raw", True).value)
         self.publish_compressed = bool(
             self.declare_parameter("publish_compressed", True).value
@@ -75,6 +76,10 @@ class GStreamerCameraNode(Node):
         self.open_pipeline()
 
     def build_pipeline(self):
+        output_width = self.output_width if self.output_width > 0 else self.width
+        output_height = self.output_height if self.output_height > 0 else self.height
+        decoder_pipeline = self.build_decoder_pipeline(output_width, output_height)
+
         return (
             "udpsrc address=%s port=%d multicast-iface=%s "
             "! queue leaky=downstream max-size-buffers=1 max-size-bytes=0 max-size-time=0 "
@@ -82,18 +87,52 @@ class GStreamerCameraNode(Node):
             "! rtph264depay "
             "! h264parse "
             "! queue leaky=downstream max-size-buffers=1 max-size-bytes=0 max-size-time=0 "
-            "! avdec_h264 "
-            "! queue leaky=downstream max-size-buffers=1 max-size-bytes=0 max-size-time=0 "
-            "! videoconvert "
-            "! video/x-raw,width=%d,height=%d,format=BGR "
+            "%s "
             "! appsink name=sink emit-signals=true max-buffers=1 drop=true sync=false"
         ) % (
             self.multicast_address,
             self.port,
             self.interface,
-            self.width,
-            self.height,
+            decoder_pipeline,
         )
+
+    def build_decoder_pipeline(self, output_width, output_height):
+        decoder = str(self.decoder).lower()
+        use_nvidia = decoder in ("auto", "nvidia", "jetson", "hardware")
+
+        nvidia_converter = self.nvidia_converter_element()
+        if (
+            use_nvidia
+            and self.has_gst_element("nvv4l2decoder")
+            and nvidia_converter is not None
+        ):
+            self.get_logger().info("Using NVIDIA GStreamer H264 decoder")
+            return (
+                "! nvv4l2decoder enable-max-performance=1 disable-dpb=true "
+                "! queue leaky=downstream max-size-buffers=1 max-size-bytes=0 max-size-time=0 "
+                "! %s "
+                "! video/x-raw,width=%d,height=%d,format=BGRx "
+                "! videoconvert "
+                "! video/x-raw,format=BGR"
+            ) % (nvidia_converter, output_width, output_height)
+
+        self.get_logger().info("Using software GStreamer H264 decoder")
+        return (
+            "! avdec_h264 "
+            "! queue leaky=downstream max-size-buffers=1 max-size-bytes=0 max-size-time=0 "
+            "! videoconvert "
+            "! videoscale "
+            "! video/x-raw,width=%d,height=%d,format=BGR"
+        ) % (output_width, output_height)
+
+    def has_gst_element(self, name):
+        return self.Gst.ElementFactory.find(name) is not None
+
+    def nvidia_converter_element(self):
+        for name in ("nvvidconv", "nvvideoconvert"):
+            if self.has_gst_element(name):
+                return name
+        return None
 
     def open_pipeline(self):
         pipeline = self.build_pipeline()
