@@ -108,7 +108,6 @@ class WanderNode(Node):
             # Normalize probabilities and choose
             probs = [w / total for w in weights]
             state = random.choices(states, probs, k=1)[0]
-            self.get_logger().info(f'NEXT STATE: {state}')
 
         if state == "turn":
             self.start_random_turn()
