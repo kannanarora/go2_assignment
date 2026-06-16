@@ -105,6 +105,7 @@ class GStreamerCameraNode(Node):
             "! rtph264depay "
             "! h264parse "
             "%s "
+            "! queue max-size-buffers=1 max-size-time=0 max-size-bytes=0 leaky=downstream "
             "! appsink name=sink emit-signals=true max-buffers=1 drop=true sync=false"
         ) % (
             self.multicast_address,

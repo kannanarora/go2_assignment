@@ -14,5 +14,5 @@ gstreamer_camera_node:
     publish_raw: true
     publish_compressed: true
     raw_max_fps: 0.0
-    compressed_max_fps: 0.0
-    jpeg_quality: 92
+    compressed_max_fps: 10.0
+    jpeg_quality: 85
