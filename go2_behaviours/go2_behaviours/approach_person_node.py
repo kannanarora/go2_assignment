@@ -37,10 +37,16 @@ class ApproachPersonNode(Node):
             self.declare_parameter("distance_tolerance_m", 0.08).value
         )
         self.forward_speed_mps = float(
-            self.declare_parameter("forward_speed_mps", 0.18).value
+            self.declare_parameter("forward_speed_mps", 0.25).value
         )
         self.min_forward_speed_mps = float(
-            self.declare_parameter("min_forward_speed_mps", 0.05).value
+            self.declare_parameter("min_forward_speed_mps", 0.08).value
+        )
+        self.approach_slowdown_distance_m = float(
+            self.declare_parameter("approach_slowdown_distance_m", 0.45).value
+        )
+        self.min_bearing_speed_scale = float(
+            self.declare_parameter("min_bearing_speed_scale", 0.45).value
         )
         self.search_yaw_speed_radps = float(
             self.declare_parameter("search_yaw_speed_radps", 0.45).value
@@ -74,6 +80,12 @@ class ApproachPersonNode(Node):
         )
         self.person_obstacle_distance_tolerance_m = float(
             self.declare_parameter("person_obstacle_distance_tolerance_m", 0.35).value
+        )
+        self.centered_front_is_person_max_distance_m = float(
+            self.declare_parameter(
+                "centered_front_is_person_max_distance_m",
+                2.5,
+            ).value
         )
         self.obstacle_stop_distance_m = float(
             self.declare_parameter("obstacle_stop_distance_m", 0.65).value
@@ -129,6 +141,8 @@ class ApproachPersonNode(Node):
         self.finished = False
         self.arrival_repeat_count = 0
         self.next_arrival_command_time = 0.0
+        self._last_vx = 0.0
+        self._last_vyaw = 0.0
         self._last_command = None
         self._last_log_time = 0.0
 
@@ -268,11 +282,15 @@ class ApproachPersonNode(Node):
         distance_scale = 1.0
         if person.distance_valid:
             remaining = max(float(person.distance_m) - self.stop_distance_m, 0.0)
-            distance_scale = self.clamp(remaining / 1.0, 0.0, 1.0)
+            distance_scale = self.clamp(
+                remaining / max(self.approach_slowdown_distance_m, 0.05),
+                0.0,
+                1.0,
+            )
 
         bearing_scale = self.clamp(
             1.0 - abs(bearing) / max(self.turn_in_place_bearing_rad, 0.01),
-            0.0,
+            self.min_bearing_speed_scale,
             1.0,
         )
         speed = self.forward_speed_mps * max(distance_scale, 0.2) * bearing_scale
@@ -290,11 +308,17 @@ class ApproachPersonNode(Node):
         return speed, yaw
 
     def front_return_matches_person(self, person: PersonTrack, front: float) -> bool:
-        if person is None or not math.isfinite(front) or not person.distance_valid:
+        if person is None or not math.isfinite(front):
             return False
 
         if abs(float(person.bearing_rad)) > self.person_obstacle_bearing_gate_rad:
             return False
+
+        if front < self.obstacle_stop_distance_m:
+            return False
+
+        if not person.distance_valid:
+            return front <= self.centered_front_is_person_max_distance_m
 
         return (
             abs(float(person.distance_m) - float(front))
@@ -395,6 +419,8 @@ class ApproachPersonNode(Node):
         msg.linear.x = float(vx)
         msg.angular.z = float(vyaw)
         self.cmd_vel_pub.publish(msg)
+        self._last_vx = float(vx)
+        self._last_vyaw = float(vyaw)
 
     def publish_command(self, command: str, force: bool = False):
         if not force and command == self._last_command:
@@ -421,13 +447,22 @@ class ApproachPersonNode(Node):
                 "%.2fm" % person.distance_m if person.distance_valid else "invalid"
             )
             self.get_logger().info(
-                "phase=%s status=%s front=%s bearing=%.2f distance=%s"
-                % (self.phase, status, front_text, person.bearing_rad, distance_text)
+                "phase=%s status=%s front=%s bearing=%.2f distance=%s "
+                "cmd=(%.2f, %.2f)"
+                % (
+                    self.phase,
+                    status,
+                    front_text,
+                    person.bearing_rad,
+                    distance_text,
+                    self._last_vx,
+                    self._last_vyaw,
+                )
             )
         else:
             self.get_logger().info(
-                "phase=%s status=%s front=%s no_person"
-                % (self.phase, status, front_text)
+                "phase=%s status=%s front=%s no_person cmd=(%.2f, %.2f)"
+                % (self.phase, status, front_text, self._last_vx, self._last_vyaw)
             )
 
     def clamp(self, value: float, lo: float, hi: float) -> float:
