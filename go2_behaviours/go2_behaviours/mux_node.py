@@ -113,7 +113,7 @@ class MuxNode(Node):
             s.data = msg.trick_name
             # Only send go2 trick command once
             if self.robot_state != msg.trick_name:
-                self.get_logger("Executing trick")
+                self.get_logger().info("Executing trick")
                 self.trigger_behaviour_pub.publish(s)
                 self.robot_state = msg.trick_name
         elif msg.command_type == Go2Command.MOVE:
