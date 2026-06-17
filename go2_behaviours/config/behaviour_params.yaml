@@ -20,7 +20,7 @@ wander_node:
   ros__parameters:
     trigger_topic: /wander_cmd
     bark_topic: /bark
-    forward_speed_mps: 0.30
+    forward_speed_mps: 0.40
     turn_speed_radps: 1.00
     min_turn_deg: 35.0
     max_turn_deg: 160.0
@@ -38,8 +38,8 @@ obstacle_avoid_node:
     command_topic: /avoidance_cmd
     turn_speed_radps: 1.00
     avoid_turn_speed_radps: 1.10
-    avoid_threshold_m: 1.00
-    clear_threshold_m: 1.25
+    avoid_threshold_m: 1.45
+    clear_threshold_m: 1.75
     front_half_angle_deg: 18.0
     side_sector_min_deg: 25.0
     side_sector_max_deg: 80.0
