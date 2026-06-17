@@ -35,9 +35,17 @@ class WanderNode(Node):
         self.max_walk_distance_m = float(
             self.declare_parameter("max_walk_distance_m", 0.25).value
         )
+
+        # Stretch is 5 seconds
+        # Stand is 5 seconds
+        # Sit is 1-1.5 seconds
         self.trick_duration = float(
-            self.declare_parameter("trick_duration_s", 5).value
+            self.declare_parameter("trick_duration_s", 5.5).value
         )
+        self.bark_duration = float(
+            self.declare_parameter("bark_duration_s", 1).value
+        )
+
         self.command_rate_hz = float(
             self.declare_parameter("command_rate_hz", 1).value
         )
@@ -55,15 +63,13 @@ class WanderNode(Node):
 
         # Actions: walk, turn, sit, stretch, bark, rise_sit
 
-        # TODO take bark out of this?
-
         # Markov table
         self.transitions = {
             'sit': [('rise_sit', 0.75), ('sit', 0.25)],
-            'rise_sit': [('walk', 0.25), ('turn', 0.25), ('stretch', 0.25), ('bark', 0.25)],
-            'walk': [('walk', 0.2), ('turn', 0.3), ('stretch', 0.1), ('bark', 0.2), ('sit', 0.2)],
-            'turn': [('walk', 0.3), ('turn', 0.2), ('stretch', 0.1), ('bark', 0.2), ('sit', 0.2)],
-            'stretch': [('walk', 0.4), ('turn', 0.4),  ('bark', 0.2)],
+            'rise_sit': [('walk', 0.5), ('turn', 0.5)],
+            'walk': [('turn', 0.6), ('stretch', 0.2), ('sit', 0.2)],
+            'turn': [('walk', 0.3), ('turn', 0.2), ('stretch', 0.1), ('bark', 0.1), ('sit', 0.2)],
+            'stretch': [('walk', 0.6), ('turn', 0.4)],
             'bark': [('walk', 0.3), ('turn', 0.2), ('stretch', 0.1), ('bark', 0.2), ('sit', 0.2)],
         }
 
@@ -88,8 +94,6 @@ class WanderNode(Node):
             self.publish_move(self.forward_speed_mps, 0.0)
         elif self.phase == "turn":
             self.publish_move(0.0, self.turn_direction * self.current_turn_speed())
-        # else:
-        #     self.publish_move(0.0, 0.0)
 
     def advance_phase(self):
         if self.phase == "startup":
@@ -108,7 +112,6 @@ class WanderNode(Node):
             # Normalize probabilities and choose
             probs = [w / total for w in weights]
             state = random.choices(states, probs, k=1)[0]
-            self.get_logger().info(f'NEXT STATE: {state}')
 
         if state == "turn":
             self.start_random_turn()
@@ -147,7 +150,7 @@ class WanderNode(Node):
         self.publish_command('bark', force=True)
         
         self.get_logger().info('PUBLISHED BARK')
-        duration = max(abs(self.trick_duration), 0.01)
+        duration = max(abs(self.bark_duration), 0.01)
         self.set_phase("bark", duration)
         return
 

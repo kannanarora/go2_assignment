@@ -34,8 +34,6 @@ class CmdVelBridgeNode(Node):
         # Publisher
         self.request_pub = self.create_publisher(Request, self.request_topic, 10)
 
-        self.get_logger().info(f"Instant CmdVelBridge Started. Listening exclusively to {self.cmd_vel_topic}")
-
     def cmd_vel_callback(self, msg: Twist):
         vx = self.clamp(msg.linear.x, -self.max_linear_speed_mps, self.max_linear_speed_mps)
         vy = self.clamp(msg.linear.y, -self.max_lateral_speed_mps, self.max_lateral_speed_mps)
@@ -54,7 +52,6 @@ class CmdVelBridgeNode(Node):
     def publish_move_request(self, vx: float, vy: float, vyaw: float):
         params = {"x": float(vx), "y": float(vy), "z": float(vyaw)}
         req = self.build_request(SPORT_API_ID_MOVE, params, noreply=True)
-        self.get_logger().info("PUBLISHING MOVE REQUEST")
         self.request_pub.publish(req)
 
     def disable_joystick_for_move(self):

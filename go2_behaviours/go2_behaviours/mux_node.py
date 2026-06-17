@@ -31,14 +31,14 @@ class MuxNode(Node):
 
         # STATE STORAGE
         # We store the latest message and the time it was received
-        # TODO tune timeouts
         self.state = {
-            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 0.5}, # Priority 1 (Highest)
-            'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 0.2}, # Priority 2
-            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 1}  # Priority 3 (Lowest)
+            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 4}, # Priority 1 (Highest)
+            'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 1}, # Priority 2
+            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 6}  # Priority 3 (Lowest)
         }
         # General robot state trick/avoid/wander
         self.active_teir = 'none'
+        # Allowed states, move/sit/rise_sit/.....
         self.robot_state = 'none'
 
         self.wander_begin_timeout = 0.5 # So wander commands are only executed when fresh!
@@ -72,13 +72,12 @@ class MuxNode(Node):
         selected_msg = Go2Command() # Defaults nil which stops go2
 
         # Check in order of highest priority to lowest
-        # 
-        if self.is_active('avoid', now):
-            selected_msg = self.state['avoid']['msg']
-            self.active_teir = 'avoid'
-        elif self.is_active('trick', now):
+        if self.is_active('trick', now):
             selected_msg = self.state['trick']['msg']
             self.active_teir = 'trick'
+        elif self.is_active('avoid', now):
+            selected_msg = self.state['avoid']['msg']
+            self.active_teir = 'avoid'
         elif self.is_active('wander', now) and self.should_wander():
             selected_msg = self.state['wander']['msg']
             self.active_teir = 'wander'
@@ -107,22 +106,28 @@ class MuxNode(Node):
     # If twist publish to cmd_vel
     # if trick publish directly to trick
     def publish_command(self, msg):
-        if msg.command_type == Go2Command.MOVE:
+
+        if msg.command_type == Go2Command.TRICK:
+            s = String()
+            s.data = msg.trick_name
+            # Only send go2 trick command once
+            if self.robot_state != msg.trick_name:
+                self.get_logger().info(f"PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
+                self.trigger_behaviour_pub.publish(s)
+                self.robot_state = msg.trick_name
+            self.get_logger().info(f"SKIPPING PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
+        elif msg.command_type == Go2Command.MOVE:
             self.robot_state = 'move'
             self.cmd_vel_pub.publish(msg.twist_command)
-        elif msg.command_type == Go2Command.TRICK:
-            s = String()
-            self.robot_state = msg.trick_name
-            s.data = msg.trick_name
-            self.trigger_behaviour_pub.publish(s)
+            self.get_logger().info(f"PUBLISH MOVE: {self.robot_state}; FOR TIER: {self.active_teir}")
         else:
             # If empty command or STAY, just make go2 balance stand
             s = String()
             s.data = 'balance_stand'
             self.robot_state = 'stand'
             self.trigger_behaviour_pub.publish(s)
-    
-        print(f'ROBOT STATE IS NOW {self.robot_state}')
+            self.get_logger().info(f"PUBLISHING STAND: {self.robot_state}; FOR TIER: {self.active_teir}")
+
 
     # Check if message is recent enough to be action
     def is_active(self, source, current_time):
