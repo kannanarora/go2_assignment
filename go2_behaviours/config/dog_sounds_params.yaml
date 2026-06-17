@@ -11,7 +11,7 @@ dog_sounds_node:
       - "sit:bark"
       - "lie_down:crying1"
       - "hello:bark"
-      - "stretch:stretch_1"
+      - "stretch:stretch1"
       - "bark:bark"
       - "speak:bark"
 
@@ -26,9 +26,10 @@ dog_sounds_node:
     move_speed_threshold: 0.05
     cmd_timeout_s: 0.5
 
-    # panting loops back-to-back while moving; set close to the panting
-    # clip's length so it sounds continuous (no gaps, no overlap)
-    pant_period_s: 2.0
+    # while moving, pant after a RANDOM gap in [min, max] and pick a random
+    # clip each time, so panting sounds natural instead of a fixed metronome
+    pant_min_gap_s: 2.0
+    pant_max_gap_s: 6.0
 
     # idle breathing period while standing still
     idle_breathe_gap_s: 8.0

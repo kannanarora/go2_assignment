@@ -116,7 +116,7 @@ sound_player_node:
       - sit:bark
       - lie_down:crying1
       - hello:bark
-      - stretch:stretch_1
+      - stretch:stretch1
 
 random_bark_node:
   ros__parameters:

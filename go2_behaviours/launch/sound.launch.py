@@ -29,7 +29,7 @@ SOUND_MAP = [
     "sit:bark",
     "lie_down:crying1",
     "hello:bark",
-    "stretch:stretch_1",
+    "stretch:stretch1",
 ]
 
 

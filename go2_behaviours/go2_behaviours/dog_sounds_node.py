@@ -42,7 +42,7 @@ class DogSoundsNode(Node):
         # --- EVENT tier: token -> file_name played one-shot ---
         event_map = self.declare_parameter(
             "event_sound_map",
-            ["dance:bark2", "sit:bark", "stretch:stretch_1",
+            ["dance:bark2", "sit:bark", "stretch:stretch1",
              "bark:bark", "speak:bark"],
         ).value
 
@@ -63,11 +63,17 @@ class DogSoundsNode(Node):
             self.declare_parameter("cmd_timeout_s", 0.5).value
         )
 
-        # panting cadence while moving: loops back-to-back, so set this close
-        # to the panting clip's length for continuous panting
-        self.pant_period_s = float(
-            self.declare_parameter("pant_period_s", 2.0).value
+        # panting cadence while moving: each pant waits a RANDOM gap in
+        # [min, max] before the next one, and a random clip is chosen, so it
+        # sounds natural rather than a fixed metronome
+        self.pant_min_gap_s = float(
+            self.declare_parameter("pant_min_gap_s", 2.0).value
         )
+        self.pant_max_gap_s = float(
+            self.declare_parameter("pant_max_gap_s", 6.0).value
+        )
+        if self.pant_max_gap_s < self.pant_min_gap_s:
+            self.pant_max_gap_s = self.pant_min_gap_s
 
         # idle breathing period (while standing still)
         self.idle_breathe_gap_s = float(
@@ -99,6 +105,7 @@ class DogSoundsNode(Node):
         self._last_cmd_time = None
         self._busy_until = self.get_clock().now()
         self._last_pant_time = self.get_clock().now()
+        self._pant_gap_s = random.uniform(self.pant_min_gap_s, self.pant_max_gap_s)
         self._last_breathe_time = self.get_clock().now()
 
         self.create_subscription(Twist, cmd_vel_topic, self._on_cmd_vel, 10)
@@ -188,13 +195,16 @@ class DogSoundsNode(Node):
             return  # an event (or recent ambient) owns the speaker
 
         if self._is_moving():
-            # loop panting back-to-back while moving
+            # random clip after a random gap -> natural, irregular panting
             if (self._pant_uuids
                     and self._seconds_since(self._last_pant_time)
-                    >= self.pant_period_s):
+                    >= self._pant_gap_s):
                 self._play_ambient(random.choice(self._pant_uuids))
                 self._last_pant_time = self.get_clock().now()
-                self.get_logger().info("pant")
+                self._pant_gap_s = random.uniform(
+                    self.pant_min_gap_s, self.pant_max_gap_s
+                )
+                self.get_logger().info("pant (next in %.1fs)" % self._pant_gap_s)
         else:
             if (self._breathe_uuid
                     and self._seconds_since(self._last_breathe_time)
