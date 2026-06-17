@@ -29,19 +29,19 @@ class ApproachPersonNode(Node):
         ).value
 
         self.stop_distance_m = float(
-            self.declare_parameter("stop_distance_m", 1.15).value
+            self.declare_parameter("stop_distance_m", 1.10).value
         )
         self.distance_tolerance_m = float(
-            self.declare_parameter("distance_tolerance_m", 0.12).value
+            self.declare_parameter("distance_tolerance_m", 0.10).value
         )
         self.forward_speed_mps = float(
-            self.declare_parameter("forward_speed_mps", 0.38).value
+            self.declare_parameter("forward_speed_mps", 0.42).value
         )
         self.min_forward_speed_mps = float(
-            self.declare_parameter("min_forward_speed_mps", 0.16).value
+            self.declare_parameter("min_forward_speed_mps", 0.26).value
         )
         self.approach_slowdown_distance_m = float(
-            self.declare_parameter("approach_slowdown_distance_m", 0.35).value
+            self.declare_parameter("approach_slowdown_distance_m", 0.30).value
         )
         self.min_bearing_speed_scale = float(
             self.declare_parameter("min_bearing_speed_scale", 0.50).value
@@ -114,6 +114,9 @@ class ApproachPersonNode(Node):
         self.person_timeout_s = float(
             self.declare_parameter("person_timeout_s", 0.8).value
         )
+        self.distance_memory_s = float(
+            self.declare_parameter("distance_memory_s", 0.7).value
+        )
         self.scan_timeout_s = float(self.declare_parameter("scan_timeout_s", 1.5).value)
         self.command_rate_hz = float(
             self.declare_parameter("command_rate_hz", 10.0).value
@@ -136,6 +139,8 @@ class ApproachPersonNode(Node):
         self.latest_person = None
         self.latest_person_time = 0.0
         self.person_seen_since = 0.0
+        self.last_approach_distance = None
+        self.last_approach_distance_time = 0.0
         self.arrival_candidate_since = 0.0
         self.latest_scan = None
         self.latest_scan_time = 0.0
@@ -291,6 +296,8 @@ class ApproachPersonNode(Node):
         distance_scale = 1.0
         if approach_distance is not None:
             remaining = max(approach_distance - self.stop_distance_m, 0.0)
+            if remaining <= 0.0:
+                return 0.0, yaw
             distance_scale = self.clamp(
                 remaining / max(self.approach_slowdown_distance_m, 0.05),
                 0.0,
@@ -302,7 +309,7 @@ class ApproachPersonNode(Node):
             self.min_bearing_speed_scale,
             1.0,
         )
-        speed = self.forward_speed_mps * max(distance_scale, 0.2) * bearing_scale
+        speed = self.forward_speed_mps * distance_scale * bearing_scale
 
         if distance_scale > 0.0:
             speed = max(speed, self.min_forward_speed_mps)
@@ -317,11 +324,23 @@ class ApproachPersonNode(Node):
         return speed, yaw
 
     def estimate_person_distance(self, person: PersonTrack, front: float):
+        distance = None
         if person.distance_valid:
-            return float(person.distance_m)
+            distance = float(person.distance_m)
+        elif self.front_return_matches_person(person, front):
+            distance = float(front)
 
-        if self.front_return_matches_person(person, front):
-            return float(front)
+        now = time.monotonic()
+        if distance is not None:
+            self.last_approach_distance = distance
+            self.last_approach_distance_time = now
+            return distance
+
+        if (
+            self.last_approach_distance is not None
+            and now - self.last_approach_distance_time <= self.distance_memory_s
+        ):
+            return self.last_approach_distance
 
         return None
 
