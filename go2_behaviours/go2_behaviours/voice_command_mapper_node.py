@@ -25,7 +25,7 @@ COMMAND_RULES = [
     (("turn left",), "turn_left"),
     (("turn right",), "turn_right"),
     (("lie down", "lay down", "lie", "lay"), "lie_down"),
-    (("sit", "six", "sid", "sick", "shit", "down"), "sit"),
+    (("sit", "six", "sid", "sick", "shit", "down", "fit"), "sit"),
     (("stand", "get up", "stand up", "up"), "stand"),
     (("stop", "halt", "freeze"), "stop"),
     (("hello", "hey", "wave"), "hello"),
