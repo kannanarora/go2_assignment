@@ -63,14 +63,16 @@ approach_person_node:
     min_bearing_speed_scale: 0.50
     search_yaw_speed_radps: 0.55
     max_yaw_speed_radps: 0.55
+    max_walk_yaw_speed_radps: 0.18
     yaw_kp: 0.90
     yaw_sign: 1.0
     centered_bearing_rad: 0.18
+    walk_with_turn_bearing_rad: 0.35
     turn_in_place_bearing_rad: 0.60
     min_person_confidence: 0.40
     confirm_person_s: 0.35
     arrival_confirm_s: 0.45
-    arrival_centered_bearing_rad: 0.16
+    arrival_centered_bearing_rad: 0.25
     person_obstacle_bearing_gate_rad: 0.35
     person_obstacle_distance_tolerance_m: 0.35
     centered_front_is_person_max_distance_m: 2.5

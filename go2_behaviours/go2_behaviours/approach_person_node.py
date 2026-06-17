@@ -52,10 +52,16 @@ class ApproachPersonNode(Node):
         self.max_yaw_speed_radps = float(
             self.declare_parameter("max_yaw_speed_radps", 0.55).value
         )
+        self.max_walk_yaw_speed_radps = float(
+            self.declare_parameter("max_walk_yaw_speed_radps", 0.18).value
+        )
         self.yaw_kp = float(self.declare_parameter("yaw_kp", 0.90).value)
         self.yaw_sign = float(self.declare_parameter("yaw_sign", 1.0).value)
         self.centered_bearing_rad = float(
             self.declare_parameter("centered_bearing_rad", 0.18).value
+        )
+        self.walk_with_turn_bearing_rad = float(
+            self.declare_parameter("walk_with_turn_bearing_rad", 0.35).value
         )
         self.turn_in_place_bearing_rad = float(
             self.declare_parameter("turn_in_place_bearing_rad", 0.60).value
@@ -70,7 +76,7 @@ class ApproachPersonNode(Node):
             self.declare_parameter("arrival_confirm_s", 0.45).value
         )
         self.arrival_centered_bearing_rad = float(
-            self.declare_parameter("arrival_centered_bearing_rad", 0.16).value
+            self.declare_parameter("arrival_centered_bearing_rad", 0.25).value
         )
 
         self.person_obstacle_bearing_gate_rad = float(
@@ -272,11 +278,14 @@ class ApproachPersonNode(Node):
             self.max_yaw_speed_radps,
         )
 
-        if abs(bearing) > self.turn_in_place_bearing_rad:
+        if abs(bearing) > max(self.walk_with_turn_bearing_rad, self.centered_bearing_rad):
             return 0.0, yaw
 
-        if abs(bearing) > self.centered_bearing_rad:
-            return 0.0, yaw
+        yaw = self.clamp(
+            yaw,
+            -self.max_walk_yaw_speed_radps,
+            self.max_walk_yaw_speed_radps,
+        )
 
         approach_distance = self.estimate_person_distance(person, front)
         distance_scale = 1.0
