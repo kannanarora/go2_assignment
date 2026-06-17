@@ -101,7 +101,7 @@ class MuxNode(Node):
 
         return False
 
-    # If twist publish to cmd_vel
+# If twist publish to cmd_vel
     # if trick publish directly to trick
     def publish_command(self, msg):
         
@@ -144,18 +144,23 @@ class MuxNode(Node):
         if msg.command_type == Go2Command.TRICK:
             s = String()
             s.data = msg.trick_name
-            # Only send go2 trick command once
+            
+            # Reset tick to 0 if we are switching to a new trick
             if self.robot_state['mode'] != msg.trick_name:
-                self.trigger_behaviour_pub.publish(s)
                 self.robot_state = {'mode': msg.trick_name, 'tick': 0}
-                self.get_logger().info(f"PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
+                
+            # Publish for the first 2 ticks (tick 0 and tick 1)
+            if self.robot_state['tick'] < 2:
+                self.trigger_behaviour_pub.publish(s)
+                self.robot_state['tick'] += 1
+                self.get_logger().info(f"PUBLISH TRICK ({self.robot_state['tick']}/2): {self.robot_state}; FOR TIER: {self.active_teir}")
             else:
+                self.robot_state['tick'] += 1
                 self.get_logger().info(f"SKIPPING PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
-                self.robot_state['tick'] = self.robot_state['tick'] + 1
                 
         elif msg.command_type == Go2Command.MOVE:
             if self.robot_state['mode'] == 'move':
-                self.robot_state['tick'] = self.robot_state['tick'] + 1
+                self.robot_state['tick'] += 1
             else:
                 self.robot_state = {'mode': 'move', 'tick': 0}
             self.cmd_vel_pub.publish(msg.twist_command)
@@ -166,7 +171,7 @@ class MuxNode(Node):
             s = String()
             s.data = 'balance_stand'
             if self.robot_state['mode'] == 'stand':
-                self.robot_state['tick'] = self.robot_state['tick'] + 1
+                self.robot_state['tick'] += 1
                 self.get_logger().info(f"SKIPPING PUBLISHING STAND: {self.robot_state}; FOR TIER: {self.active_teir}")
             else:
                 self.robot_state = {'mode': 'stand', 'tick': 0}
