@@ -35,6 +35,7 @@ class WanderNode(Node):
         self.max_walk_distance_m = float(
             self.declare_parameter("max_walk_distance_m", 0.25).value
         )
+        # TODO custom duration for each trick
         self.trick_duration = float(
             self.declare_parameter("trick_duration_s", 5).value
         )
@@ -85,8 +86,6 @@ class WanderNode(Node):
             self.publish_move(self.forward_speed_mps, 0.0)
         elif self.phase == "turn":
             self.publish_move(0.0, self.turn_direction * self.current_turn_speed())
-        # else:
-        #     self.publish_move(0.0, 0.0)
 
     def advance_phase(self):
         if self.phase == "startup":
