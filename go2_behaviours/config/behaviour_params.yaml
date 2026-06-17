@@ -129,19 +129,17 @@ sound_player_node:
   ros__parameters:
     trigger_topic: /trigger_behaviour
     sound_map:
-      - bark:go2_bark
-      - speak:go2_bark
-      - bark2:go2_bark2
-      - bark3:go2_bark3
-      - breathe:go2_breathing
-      - cry:go2_crying
-      - pant:go2_panting1
-      - pant2:go2_panting2
-      - pant3:go2_panting3
+      - bark:bark
+      - speak:bark
+      - dance:bark2
+      - sit:bark
+      - lie_down:crying1
+      - hello:bark
+      - stretch:stretch1
 
 random_bark_node:
   ros__parameters:
-    trigger_topic: /trigger_behaviour
+    trigger_topic: /dog_sound_trigger
     bark_token: bark
     min_interval_s: 8.0
-    max_interval_s: 30.0
+    max_interval_s: 18.0

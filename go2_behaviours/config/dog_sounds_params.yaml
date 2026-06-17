@@ -1,0 +1,41 @@
+dog_sounds_node:
+  ros__parameters:
+    cmd_vel_topic: /cmd_vel
+    trigger_topic: /trigger_behaviour
+    behaviour_trigger_topic: /trigger_behaviour
+    sound_trigger_topic: /dog_sound_trigger
+
+    # EVENT tier: "<token>:<audiohub_file_name>" played one-shot on trigger.
+    # Plays the instant the action token is published, so the sound overlaps
+    # the motion (sound and motors are independent actuators).
+    event_sound_map:
+      - "dance:bark2"
+      - "sit:bark"
+      - "lie_down:crying1"
+      - "hello:bark"
+      - "stretch:stretch1"
+      - "bark:bark"
+      - "speak:bark"
+
+    # AMBIENT tier
+    panting_clips:
+      - "panting1"
+      - "panting2"
+    # no breathing clip in the current set -> idle breathing disabled (empty)
+    breathing_clip: ""
+
+    # what counts as "moving" from /cmd_vel
+    move_speed_threshold: 0.05
+    cmd_timeout_s: 0.5
+
+    # while moving, pant after a RANDOM gap in [min, max] and pick a random
+    # clip each time, so panting sounds natural instead of a fixed metronome
+    pant_min_gap_s: 2.0
+    pant_max_gap_s: 6.0
+
+    # idle breathing period while standing still
+    idle_breathe_gap_s: 8.0
+
+    # after an event clip, suppress ambient this long so they don't cut off
+    event_busy_s: 2.0
+    ambient_rate_hz: 5.0

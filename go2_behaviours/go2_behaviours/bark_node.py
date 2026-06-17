@@ -3,7 +3,7 @@
 """
 Play the dog bark on command
 
-Listens on /trigger_behaviour for "bark" / "speak" and plays the go2_bark
+Listens on /trigger_behaviour for "bark" / "speak" and plays the bark
 sound from the robot's AudioHub (uploaded by audiohub_player_node)
 """
 
@@ -20,7 +20,7 @@ class BarkNode(Node):
     def __init__(self):
         super().__init__("bark_node")
 
-        self.file_name = self.declare_parameter("file_name", "go2_bark").value
+        self.file_name = self.declare_parameter("file_name", "bark").value
         trigger_topic = self.declare_parameter(
             "trigger_topic", "/trigger_behaviour"
         ).value

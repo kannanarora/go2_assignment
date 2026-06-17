@@ -33,6 +33,7 @@ setup(
             'sound_player_node = go2_behaviours.sound_player_node:main',
             'random_bark_node = go2_behaviours.random_bark_node:main',
             'bark_node = go2_behaviours.bark_node:main',
+            'dog_sounds_node = go2_behaviours.dog_sounds_node:main',
         ],
     },
 )

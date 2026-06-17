@@ -36,6 +36,7 @@ def generate_launch_description():
     enable_random_bark = LaunchConfiguration("enable_random_bark")
     enable_approach = LaunchConfiguration("enable_approach")
     enable_person_tracking = LaunchConfiguration("enable_person_tracking")
+    enable_dog_sounds = LaunchConfiguration("enable_dog_sounds")
 
     utils_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -63,6 +64,7 @@ def generate_launch_description():
         launch_arguments={
             "trigger_topic": "/trigger_behaviour",
             "enable_random_bark": enable_random_bark,
+            "enable_dog_sounds": enable_dog_sounds,
         }.items(),
     )
 
@@ -71,8 +73,8 @@ def generate_launch_description():
             DeclareLaunchArgument("enable_voice", default_value="true"),
             DeclareLaunchArgument(
                 "enable_random_bark",
-                default_value="false",
-                description="Publish random bark tokens on /trigger_behaviour",
+                default_value="true",
+                description="Publish random bark tokens on /dog_sound_trigger",
             ),
             DeclareLaunchArgument(
                 "enable_approach",
@@ -83,6 +85,11 @@ def generate_launch_description():
                 "enable_person_tracking",
                 default_value="true",
                 description="Start camera and person tracker for approach behaviour",
+            ),
+            DeclareLaunchArgument(
+                "enable_dog_sounds",
+                default_value="true",
+                description="Run ambient/event dog sounds observer node",
             ),
             utils_launch,
             whisper_launch,
@@ -144,13 +151,6 @@ def generate_launch_description():
                 output="screen",
                 parameters=[params_file],
                 condition=IfCondition(enable_approach),
-            ),
-            Node(
-                package="go2_behaviours",
-                executable="bark_node",
-                name="bark_node",
-                output="screen",
-                parameters=[params_file],
             ),
             Node(
                 package="go2_behaviours",

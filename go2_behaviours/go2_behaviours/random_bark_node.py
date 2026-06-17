@@ -3,8 +3,8 @@
 """
 Bark at random intervals
 
-Publishes a bark token to /trigger_behaviour every so often so the dog
-barks on its own. bark_node listens on the same topic and plays the sound
+Publishes a bark token to /dog_sound_trigger every so often so the dog
+barks on its own. dog_sounds_node listens on the same topic and plays it.
 """
 
 import random
@@ -19,7 +19,7 @@ class RandomBarkNode(Node):
         super().__init__("random_bark_node")
 
         self.trigger_topic = self.declare_parameter(
-            "trigger_topic", "/trigger_behaviour"
+            "trigger_topic", "/dog_sound_trigger"
         ).value
         self.bark_token = self.declare_parameter("bark_token", "bark").value
         self.min_interval_s = float(
