@@ -20,7 +20,7 @@ wander_node:
   ros__parameters:
     trigger_topic: /wander_cmd
     bark_topic: /bark
-    forward_speed_mps: 0.40
+    forward_speed_mps: 0.30
     turn_speed_radps: 1.00
     min_turn_deg: 35.0
     max_turn_deg: 160.0
@@ -38,13 +38,15 @@ obstacle_avoid_node:
     command_topic: /avoidance_cmd
     turn_speed_radps: 1.00
     avoid_turn_speed_radps: 1.10
-    avoid_threshold_m: 1.45
-    clear_threshold_m: 1.75
+    avoid_threshold_m: 1.25
+    clear_threshold_m: 1.50
     front_half_angle_deg: 18.0
     side_sector_min_deg: 25.0
     side_sector_max_deg: 80.0
     avoid_extra_turn_deg: 18.0
     max_avoid_turn_s: 8.0
+    turn_direction_lock_s: 8.0
+    switch_direction_margin_m: 0.25
     stop_duration_s: 0.4
     scan_timeout_s: 1.5
     command_rate_hz: 10.0
@@ -125,17 +127,19 @@ sound_player_node:
   ros__parameters:
     trigger_topic: /trigger_behaviour
     sound_map:
-      - bark:bark
-      - speak:bark
-      - dance:bark2
-      - sit:bark
-      - lie_down:crying1
-      - hello:bark
-      - stretch:stretch1
+      - bark:go2_bark
+      - speak:go2_bark
+      - bark2:go2_bark2
+      - bark3:go2_bark3
+      - breathe:go2_breathing
+      - cry:go2_crying
+      - pant:go2_panting1
+      - pant2:go2_panting2
+      - pant3:go2_panting3
 
 random_bark_node:
   ros__parameters:
-    trigger_topic: /dog_sound_trigger
+    trigger_topic: /trigger_behaviour
     bark_token: bark
     min_interval_s: 8.0
-    max_interval_s: 18.0
+    max_interval_s: 30.0
