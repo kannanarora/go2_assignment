@@ -184,7 +184,7 @@ class WanderNode(Node):
         if self.latest_scan is None:
             self.turn_direction = random.choice([-1.0, 1.0])
         else:
-            self.turn_direction = avoid_obvious_obstacles()
+            self.turn_direction = self.avoid_obvious_obstacles()
 
         # Determine speed and therefore duration
         angle_rad = math.radians(random.uniform(self.min_turn_deg, self.max_turn_deg))
