@@ -5,8 +5,8 @@ Sound subsystem: generic AudioHub player + optional autonomous barking.
   random_bark_node    (optional) publishes "bark" at random intervals
 
 Clips must already be in AudioHub - provision them first with:
-  ros2 launch go2_utils go2_audiohub_player.launch.py \
-      wav_file:=<abs path>/go2_meow.wav file_name:=go2_meow
+  ros2 launch go2_utils audiohub_player.launch.py \
+      wav_file:=<abs path>/bark2.wav file_name:=bark2
 
 Edit SOUND_MAP below to add more token -> file_name pairs.
 """
@@ -19,15 +19,13 @@ from launch_ros.actions import Node
 
 # token (spoken/published) -> file_name registered in AudioHub
 SOUND_MAP = [
-    "bark:go2_bark",
-    "speak:go2_bark",
-    "bark2:go2_bark2",
-    "bark3:go2_bark3",
-    "breathe:go2_breathing",
-    "cry:go2_crying",
-    "pant:go2_panting1",
-    "pant2:go2_panting2",
-    "pant3:go2_panting3",
+    "bark:bark",
+    "speak:bark",
+    "dance:bark2",
+    "sit:bark",
+    "lie_down:crying1",
+    "hello:bark",
+    "stretch:stretch_1",
 ]
 
 

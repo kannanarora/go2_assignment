@@ -7,7 +7,7 @@ A generic, reusable replacement for bark_node: instead of one hardcoded
 sound it takes a token -> file_name map and plays the matching clip when
 that token arrives on /trigger_behaviour.
 
-    sound_map: ["bark:go2_bark", "speak:go2_bark", "meow:go2_meow"]
+    sound_map: ["bark:bark", "speak:bark", "dance:bark2"]
 
 Each file_name must already be in AudioHub (upload it with
 audiohub_player_node). UUIDs are resolved once at startup.
@@ -28,7 +28,7 @@ class SoundPlayerNode(Node):
             "trigger_topic", "/trigger_behaviour"
         ).value
         sound_map = self.declare_parameter(
-            "sound_map", ["bark:go2_bark", "speak:go2_bark"]
+            "sound_map", ["bark:bark", "speak:bark"]
         ).value
 
         self._client = AudioHubClient(self)

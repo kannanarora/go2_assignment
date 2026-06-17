@@ -7,12 +7,13 @@ Sound is a separate actuator from the body, so this node does NOT go
 through mux_node / Go2Command. It just watches the streams the mux already
 produces and reacts with audio, staying silent otherwise:
 
-    /cmd_vel            (mux MOVE output)  -> moving  -> pant occasionally
+    /cmd_vel            (mux MOVE output)  -> moving  -> pant continuously
     /trigger_behaviour  (mux TRICK output) -> stretch/bark/... -> one-shot clip
 
-Two priority tiers share the single speaker (AudioHub plays one clip at a
-time): EVENT sounds (from /trigger_behaviour) subsume AMBIENT sounds
-(panting while walking, breathing while idle) via a short busy cooldown.
+AudioHub plays one clip at a time (no true mixing), so the two tiers share
+the speaker by priority: while moving, panting loops back-to-back; an EVENT
+sound (from /trigger_behaviour) interrupts it and holds the speaker for a
+short busy window before panting resumes.
 
 Requires AudioHubClient and the referenced clips already in AudioHub
 (upload them with audiohub_player_node).
@@ -41,15 +42,17 @@ class DogSoundsNode(Node):
         # --- EVENT tier: token -> file_name played one-shot ---
         event_map = self.declare_parameter(
             "event_sound_map",
-            ["stretch:go2_breathing", "bark:go2_bark", "speak:go2_bark"],
+            ["dance:bark2", "sit:bark", "stretch:stretch_1",
+             "bark:bark", "speak:bark"],
         ).value
 
         # --- AMBIENT tier ---
         self.panting_clips = self.declare_parameter(
-            "panting_clips", ["go2_panting1", "go2_panting2", "go2_panting3"]
+            "panting_clips", ["panting1", "panting2"]
         ).value
+        # empty -> idle breathing disabled (no breathing clip in the set)
         self.breathing_clip = self.declare_parameter(
-            "breathing_clip", "go2_breathing"
+            "breathing_clip", ""
         ).value
 
         # how "moving" is decided from /cmd_vel
@@ -60,29 +63,24 @@ class DogSoundsNode(Node):
             self.declare_parameter("cmd_timeout_s", 0.5).value
         )
 
-        # panting cadence: irregular, "not all the time"
-        self.pant_min_gap_s = float(
-            self.declare_parameter("pant_min_gap_s", 4.0).value
-        )
-        self.pant_probability = float(
-            self.declare_parameter("pant_probability", 0.4).value
+        # panting cadence while moving: loops back-to-back, so set this close
+        # to the panting clip's length for continuous panting
+        self.pant_period_s = float(
+            self.declare_parameter("pant_period_s", 2.0).value
         )
 
-        # idle breathing: rare
+        # idle breathing period (while standing still)
         self.idle_breathe_gap_s = float(
-            self.declare_parameter("idle_breathe_gap_s", 20.0).value
-        )
-        self.breathe_probability = float(
-            self.declare_parameter("breathe_probability", 0.2).value
+            self.declare_parameter("idle_breathe_gap_s", 8.0).value
         )
 
-        # how long the speaker is considered busy after starting a clip, so
-        # ambient noises don't stomp on an event (or each other)
-        self.busy_cooldown_s = float(
-            self.declare_parameter("busy_cooldown_s", 2.0).value
+        # after an EVENT clip, suppress ambient for this long so they don't cut
+        # each other off (AudioHub plays one clip at a time)
+        self.event_busy_s = float(
+            self.declare_parameter("event_busy_s", 2.0).value
         )
         ambient_rate_hz = float(
-            self.declare_parameter("ambient_rate_hz", 2.0).value
+            self.declare_parameter("ambient_rate_hz", 5.0).value
         )
 
         self._client = AudioHubClient(self)
@@ -92,7 +90,9 @@ class DogSoundsNode(Node):
         self._pant_uuids = [
             u for u in (self._resolve(c) for c in self.panting_clips) if u
         ]
-        self._breathe_uuid = self._resolve(self.breathing_clip)
+        self._breathe_uuid = (
+            self._resolve(self.breathing_clip) if self.breathing_clip else None
+        )
 
         # runtime state
         self._last_speed = 0.0
@@ -141,11 +141,17 @@ class DogSoundsNode(Node):
     def _busy(self):
         return self.get_clock().now() < self._busy_until
 
-    def _play(self, uuid):
+    def _play_event(self, uuid):
+        # events reserve the speaker so ambient won't cut them off
         self._client.play(uuid)
         self._busy_until = self.get_clock().now() + rclpy.duration.Duration(
-            seconds=self.busy_cooldown_s
+            seconds=self.event_busy_s
         )
+
+    def _play_ambient(self, uuid):
+        # ambient (pant/breathe) does NOT reserve the speaker, so panting can
+        # loop continuously; events still interrupt it via _busy()
+        self._client.play(uuid)
 
     def _seconds_since(self, stamp):
         return (self.get_clock().now() - stamp).nanoseconds / 1e9
@@ -157,7 +163,7 @@ class DogSoundsNode(Node):
         if uuid is None:
             return
         # events always win the speaker
-        self._play(uuid)
+        self._play_event(uuid)
         self.get_logger().info("Event sound for '%s'" % msg.data.strip())
 
     # ---- motion observation ----
@@ -182,18 +188,18 @@ class DogSoundsNode(Node):
             return  # an event (or recent ambient) owns the speaker
 
         if self._is_moving():
-            if (self._seconds_since(self._last_pant_time) >= self.pant_min_gap_s
-                    and self._pant_uuids
-                    and random.random() < self.pant_probability):
-                self._play(random.choice(self._pant_uuids))
+            # loop panting back-to-back while moving
+            if (self._pant_uuids
+                    and self._seconds_since(self._last_pant_time)
+                    >= self.pant_period_s):
+                self._play_ambient(random.choice(self._pant_uuids))
                 self._last_pant_time = self.get_clock().now()
                 self.get_logger().info("pant")
         else:
             if (self._breathe_uuid
                     and self._seconds_since(self._last_breathe_time)
-                    >= self.idle_breathe_gap_s
-                    and random.random() < self.breathe_probability):
-                self._play(self._breathe_uuid)
+                    >= self.idle_breathe_gap_s):
+                self._play_ambient(self._breathe_uuid)
                 self._last_breathe_time = self.get_clock().now()
                 self.get_logger().info("breathe")
 
