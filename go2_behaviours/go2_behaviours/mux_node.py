@@ -32,8 +32,8 @@ class MuxNode(Node):
         # STATE STORAGE
         # We store the latest message and the time it was received
         self.state = {
-            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 1}, # Priority 1 (Highest)
-            'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 1}, # Priority 2
+            'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 1 (Highest)
+            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 2
             'wander': {'msg': Go2Command(), 'time': None, 'timeout': 6}  # Priority 3 (Lowest)
         }
         # General robot state trick/avoid/wander
@@ -72,12 +72,12 @@ class MuxNode(Node):
         selected_msg = Go2Command() # Defaults nil which stops go2
 
         # Check in order of highest priority to lowest
-        if self.is_active('trick', now):
-            selected_msg = self.state['trick']['msg']
-            self.active_teir = 'trick'
-        elif self.is_active('avoid', now):
+        if self.is_active('avoid', now):
             selected_msg = self.state['avoid']['msg']
             self.active_teir = 'avoid'
+        elif self.is_active('trick', now):
+            selected_msg = self.state['trick']['msg']
+            self.active_teir = 'trick'
         elif self.is_active('wander', now) and self.should_wander():
             selected_msg = self.state['wander']['msg']
             self.active_teir = 'wander'
