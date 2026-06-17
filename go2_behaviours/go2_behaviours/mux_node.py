@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Multiplexer node for subsumption
 # This runs every 0.1 second and is always giving a command every 0.1 seconds
 # If there is no recent command then it send an empty command to make the robot
@@ -8,10 +10,6 @@ from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
 from go2_interfaces.msg import Go2Command
-
-# TODO just do the last wonder command as a base
-# however, if switching from a different command, it should only perform the command if it's fresh
-
 
 class MuxNode(Node):
     def __init__(self):
@@ -32,14 +30,14 @@ class MuxNode(Node):
         # STATE STORAGE
         # We store the latest message and the time it was received
         self.state = {
-            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 4}, # Priority 1 (Highest)
-            'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 1}, # Priority 2
+            'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 1 (Highest)
+            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 2
             'wander': {'msg': Go2Command(), 'time': None, 'timeout': 6}  # Priority 3 (Lowest)
         }
         # General robot state trick/avoid/wander
         self.active_teir = 'none'
         # Allowed states, move/sit/rise_sit/.....
-        self.robot_state = 'none'
+        self.robot_state = {'mode': 'none', 'tick': 0}
 
         self.wander_begin_timeout = 0.5 # So wander commands are only executed when fresh!
         
@@ -56,6 +54,12 @@ class MuxNode(Node):
             self.trick_callback,
             10
         )
+        self.approach_sub = self.create_subscription(
+            Go2Command,
+            "/approach_cmd",
+            self.approach_callback,
+            10
+        )
         self.avoidance_sub = self.create_subscription(
             Go2Command,
             "/avoidance_cmd",
@@ -63,7 +67,7 @@ class MuxNode(Node):
             10
         )
 
-        # CONTROL LOOP (runs at 4Hz / every 0.1 seconds)
+        # CONTROL LOOP (runs at 4Hz / every 0.25 seconds)
         self.timer = self.create_timer(0.25, self.publish_highest_priority)
         self.get_logger().info("Simple Mux Started. Waiting for commands...")
 
@@ -72,12 +76,12 @@ class MuxNode(Node):
         selected_msg = Go2Command() # Defaults nil which stops go2
 
         # Check in order of highest priority to lowest
-        if self.is_active('trick', now):
-            selected_msg = self.state['trick']['msg']
-            self.active_teir = 'trick'
-        elif self.is_active('avoid', now):
+        if self.is_active('avoid', now):
             selected_msg = self.state['avoid']['msg']
             self.active_teir = 'avoid'
+        elif self.is_active('trick', now):
+            selected_msg = self.state['trick']['msg']
+            self.active_teir = 'trick'
         elif self.is_active('wander', now) and self.should_wander():
             selected_msg = self.state['wander']['msg']
             self.active_teir = 'wander'
@@ -103,31 +107,82 @@ class MuxNode(Node):
 
         return False
 
-    # If twist publish to cmd_vel
+# If twist publish to cmd_vel
     # if trick publish directly to trick
     def publish_command(self, msg):
+        
+        # 1. Determine what the new intended mode is
+        if msg.command_type == Go2Command.TRICK:
+            intended_mode = msg.trick_name
+        elif msg.command_type == Go2Command.MOVE:
+            intended_mode = 'move'
+        else:
+            intended_mode = 'stand'
 
+        # 2. INTERCEPTOR: If sitting and wanting to do something else, start rising
+        if self.robot_state['mode'] == 'sit' and intended_mode != 'sit':
+            self.robot_state = {'mode': 'rise_sit', 'tick': 0}
+            s = String()
+            s.data = 'rise_sit'
+            self.trigger_behaviour_pub.publish(s)
+            self.get_logger().info(f"INTERCEPT: Rising from sit before executing {intended_mode}.")
+            return # Block the actual intended command for now
+
+        # 3. INTERCEPTOR: If currently rising, hold until 4 ticks have passed
+        if self.robot_state['mode'] == 'rise_sit':
+            if self.robot_state['tick'] < 4:
+                self.robot_state['tick'] += 1
+                self.get_logger().info(f"INTERCEPT: Waiting for rise_sit to finish ({self.robot_state['tick']}/4)...")
+                return # Block the intended command while rising
+            # If tick is >= 4, it falls through to normal execution below!
+
+        # --- NEW STRETCH INTERCEPTOR START ---
+        # 3.5 INTERCEPTOR: If currently stretching, block all other commands for 20 ticks (5 seconds)
+        if self.robot_state['mode'] == 'stretch':
+            if self.robot_state['tick'] < 20:
+                self.robot_state['tick'] += 1
+                self.get_logger().info(f"INTERCEPT: Waiting for stretch to finish ({self.robot_state['tick']}/20)...")
+                return # Block all incoming commands while stretching
+            # If tick is >= 20, the stretch is over and it falls through to normal execution!
+        # --- NEW STRETCH INTERCEPTOR END ---
+
+        # 4. NORMAL EXECUTION
         if msg.command_type == Go2Command.TRICK:
             s = String()
             s.data = msg.trick_name
-            # Only send go2 trick command once
-            if self.robot_state != msg.trick_name:
-                self.get_logger().info(f"PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
+            
+            # Reset tick to 0 if we are switching to a new trick
+            if self.robot_state['mode'] != msg.trick_name:
+                self.robot_state = {'mode': msg.trick_name, 'tick': 0}
+                
+            # Publish for the first 2 ticks (tick 0 and tick 1)
+            if self.robot_state['tick'] < 2:
                 self.trigger_behaviour_pub.publish(s)
-                self.robot_state = msg.trick_name
-            self.get_logger().info(f"SKIPPING PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
+                self.robot_state['tick'] += 1
+                self.get_logger().info(f"PUBLISH TRICK ({self.robot_state['tick']}/2): {self.robot_state}; FOR TIER: {self.active_teir}")
+            else:
+                self.robot_state['tick'] += 1
+                self.get_logger().info(f"SKIPPING PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
+                
         elif msg.command_type == Go2Command.MOVE:
-            self.robot_state = 'move'
+            if self.robot_state['mode'] == 'move':
+                self.robot_state['tick'] += 1
+            else:
+                self.robot_state = {'mode': 'move', 'tick': 0}
             self.cmd_vel_pub.publish(msg.twist_command)
             self.get_logger().info(f"PUBLISH MOVE: {self.robot_state}; FOR TIER: {self.active_teir}")
+            
         else:
             # If empty command or STAY, just make go2 balance stand
             s = String()
             s.data = 'balance_stand'
-            self.robot_state = 'stand'
-            self.trigger_behaviour_pub.publish(s)
-            self.get_logger().info(f"PUBLISHING STAND: {self.robot_state}; FOR TIER: {self.active_teir}")
-
+            if self.robot_state['mode'] == 'stand':
+                self.robot_state['tick'] += 1
+                self.get_logger().info(f"SKIPPING PUBLISHING STAND: {self.robot_state}; FOR TIER: {self.active_teir}")
+            else:
+                self.robot_state = {'mode': 'stand', 'tick': 0}
+                self.get_logger().info(f"PUBLISH STAND: {self.robot_state}; FOR TIER: {self.active_teir}")
+                self.trigger_behaviour_pub.publish(s)
 
     # Check if message is recent enough to be action
     def is_active(self, source, current_time):
@@ -147,6 +202,10 @@ class MuxNode(Node):
         self.state['trick']['msg'] = msg
         self.state['trick']['time'] = self.get_clock().now()
 
+    def approach_callback(self, msg: Go2Command):
+        self.state['approach']['msg'] = msg
+        self.state['approach']['time'] = self.get_clock().now()
+
     def avoid_callback(self, msg: Go2Command):
         self.state['avoid']['msg'] = msg
         self.state['avoid']['time'] = self.get_clock().now()
@@ -159,7 +218,6 @@ def main(args=None):
     finally:
         node.destroy_node()
         rclpy.shutdown()
-
 
 if __name__ == "__main__":
     main()

@@ -8,7 +8,8 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 from go2_interfaces.msg import Go2Command
-
+from sensor_msgs.msg import LaserScan
+from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 
 class WanderNode(Node):
     def __init__(self):
@@ -18,6 +19,28 @@ class WanderNode(Node):
         self.trigger_topic = self.declare_parameter(
             "trigger_topic", "/wander_cmd"
         ).value
+
+        self.latest_scan = None
+        self.latest_scan_time = 0.0
+        scan_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+        self.side_sector_min_deg = float(
+            self.declare_parameter("side_sector_min_deg", 25.0).value
+        )
+        self.side_sector_max_deg = float(
+            self.declare_parameter("side_sector_max_deg", 90.0).value
+        )
+        self.scan_topic = self.declare_parameter("scan_topic", "/front_scan").value
+        self.scan_sub = self.create_subscription(
+            LaserScan,
+            self.scan_topic,
+            self.scan_callback,
+            scan_qos,
+        )
         
         self.bark_topic = self.declare_parameter("bark_topic", "/bark").value
 
@@ -38,9 +61,8 @@ class WanderNode(Node):
 
         # Stretch is 5 seconds
         # Stand is 5 seconds
-        # Sit is 1-1.5 seconds
         self.trick_duration = float(
-            self.declare_parameter("trick_duration_s", 5.5).value
+            self.declare_parameter("trick_duration_s", 5.0).value
         )
         self.bark_duration = float(
             self.declare_parameter("bark_duration_s", 1).value
@@ -61,12 +83,11 @@ class WanderNode(Node):
         self.cmd_pub = self.create_publisher(Go2Command, self.trigger_topic, 10)
         self.bark_pub = self.create_publisher(String, self.bark_topic, 10)
 
-        # Actions: walk, turn, sit, stretch, bark, rise_sit
+        # Actions: walk, turn, sit, stretch, bark TODO
 
         # Markov table
         self.transitions = {
-            'sit': [('rise_sit', 0.75), ('sit', 0.25)],
-            'rise_sit': [('walk', 0.5), ('turn', 0.5)],
+            'sit': [('walk', 0.75), ('sit', 0.25)],
             'walk': [('turn', 0.6), ('stretch', 0.2), ('sit', 0.2)],
             'turn': [('walk', 0.3), ('turn', 0.2), ('stretch', 0.1), ('bark', 0.1), ('sit', 0.2)],
             'stretch': [('walk', 0.6), ('turn', 0.4)],
@@ -84,6 +105,10 @@ class WanderNode(Node):
             "WanderNode publishing Unified Go2Commands to %s" % (self.trigger_topic)
         )
 
+    def scan_callback(self, scan: LaserScan):
+        self.latest_scan = scan
+        self.latest_scan_time = time.monotonic()
+
     def tick(self):
         now = time.monotonic()
         if now >= self.phase_end_time:
@@ -97,7 +122,7 @@ class WanderNode(Node):
 
     def advance_phase(self):
         if self.phase == "startup":
-            self.start_random_turn()
+            self.start_turn()
             return
 
         # Weighted random choice from transitions[current]
@@ -114,9 +139,9 @@ class WanderNode(Node):
             state = random.choices(states, probs, k=1)[0]
 
         if state == "turn":
-            self.start_random_turn()
+            self.start_turn()
         elif state == "walk":
-            self.start_random_walk()
+            self.start_walk()
         elif state == "sit":
             self.start_sit()
         elif state == "stretch":
@@ -126,7 +151,7 @@ class WanderNode(Node):
         elif state == "bark":
             self.start_bark()
         else:
-            self.start_random_turn()
+            self.start_turn()
 
     def start_sit(self):
         self.publish_command('sit', force=True)
@@ -154,14 +179,72 @@ class WanderNode(Node):
         self.set_phase("bark", duration)
         return
 
-    def start_random_turn(self):
+    def start_turn(self):
+        # Determine angle to turn
+        if self.latest_scan is None:
+            self.turn_direction = random.choice([-1.0, 1.0])
+        else:
+            self.turn_direction = self.avoid_obvious_obstacles()
+
+        # Determine speed and therefore duration
         angle_rad = math.radians(random.uniform(self.min_turn_deg, self.max_turn_deg))
-        self.turn_direction = random.choice([-1.0, 1.0])
         duration = angle_rad / max(abs(self.turn_speed_radps), 0.01)
-        self.get_logger().info(f'TURNING')
+
+        # Set turn phase on
         self.set_phase("turn", duration)
 
-    def start_random_walk(self):
+    def avoid_obvious_obstacles(self):
+        scan = self.latest_scan
+        if scan is not None and scan.ranges:
+            left = self.sector_min(self.side_sector_min_deg, self.side_sector_max_deg)
+            right = self.sector_min(-self.side_sector_max_deg, -self.side_sector_min_deg)
+            if math.isfinite(left) and left < 1.5 and math.isfinite(right) and right < 1.5:
+                self.get_logger().info('AVOIDING FRONT')
+                return 1.0 if left >= right else -1.0
+            if math.isfinite(left) and left < 1.5:
+                self.get_logger().info('AVOIDING LEFT')
+                return 1.0
+            if math.isfinite(right) and right < 1.5:
+                self.get_logger().info('AVOIDING RIGHT')
+                return -1.0
+        return random.choice([-1.0, 1.0])
+
+    # TODO refactor dupication of this
+    def angle_to_index(self, scan: LaserScan, angle_rad: float) -> int:
+        # Prevent division by zero
+        if scan.angle_increment == 0.0:
+            return 0
+            
+        # Calculate where the angle falls in the array
+        index = round((angle_rad - scan.angle_min) / scan.angle_increment)
+        
+        # Clamp the index to ensure it stays within the array bounds
+        return max(0, min(len(scan.ranges) - 1, index))
+
+    def sector_min(self, deg_min: float, deg_max: float) -> float:
+        scan = self.latest_scan
+        if scan is None or not scan.ranges:
+            return float("inf")
+
+        i0 = self.angle_to_index(scan, math.radians(deg_min))
+        i1 = self.angle_to_index(scan, math.radians(deg_max))
+        if i0 > i1:
+            i0, i1 = i1, i0
+
+        valid_ranges = []
+        for value in scan.ranges[i0 : i1 + 1]:
+            if not math.isfinite(value):
+                continue
+            value = float(value)
+            if value <= 0.0 or value < scan.range_min or value > scan.range_max:
+                continue
+            valid_ranges.append(value)
+
+        if not valid_ranges:
+            return float("inf")
+        return min(valid_ranges)
+
+    def start_walk(self):
         distance = random.uniform(self.min_walk_distance_m, self.max_walk_distance_m)
         duration = distance / max(abs(self.forward_speed_mps), 0.01)
         self.get_logger().info(f'WALKING {distance}m AT SPEED {self.forward_speed_mps}')
