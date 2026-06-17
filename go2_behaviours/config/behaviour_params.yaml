@@ -20,7 +20,7 @@ wander_node:
   ros__parameters:
     trigger_topic: /wander_cmd
     bark_topic: /bark
-    forward_speed_mps: 0.50
+    forward_speed_mps: 0.30
     turn_speed_radps: 1.00
     min_turn_deg: 35.0
     max_turn_deg: 160.0
@@ -49,6 +49,20 @@ obstacle_avoid_node:
     scan_timeout_s: 1.5
     command_rate_hz: 10.0
     log_rate_hz: 0.0
+
+avoid_people_node:
+  ros__parameters:
+    person_track_topic: /person_track
+    command_topic: /avoid_people_cmd
+    sit_distance_m: 1.00
+    clear_distance_m: 1.15
+    min_person_confidence: 0.30
+    confirm_near_s: 0.15
+    lost_person_grace_s: 0.8
+    command_rate_hz: 5.0
+    log_rate_hz: 1.0
+    sit_command: sit
+    use_tracker_nearby_fallback: true
 
 approach_person_node:
   ros__parameters:
