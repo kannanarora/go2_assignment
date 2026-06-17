@@ -2,9 +2,10 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -21,6 +22,9 @@ def generate_launch_description():
         "cmd_vel_bridge_params.yaml",
     )
 
+    enable_voice = LaunchConfiguration("enable_voice")
+    enable_random_bark = LaunchConfiguration("enable_random_bark")
+
     utils_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
@@ -29,9 +33,38 @@ def generate_launch_description():
         )
     )
 
+    whisper_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution(
+                [FindPackageShare("go2_utils"), "launch", "go2_whisper.launch.py"]
+            )
+        ),
+        condition=IfCondition(enable_voice),
+    )
+
+    sound_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution(
+                [FindPackageShare("go2_behaviours"), "launch", "sound.launch.py"]
+            )
+        ),
+        launch_arguments={
+            "trigger_topic": "/trigger_behaviour",
+            "enable_random_bark": enable_random_bark,
+        }.items(),
+    )
+
     return LaunchDescription(
         [
+            DeclareLaunchArgument("enable_voice", default_value="true"),
+            DeclareLaunchArgument(
+                "enable_random_bark",
+                default_value="false",
+                description="Publish random bark tokens on /trigger_behaviour",
+            ),
             utils_launch,
+            whisper_launch,
+            sound_launch,
             Node(
                 package="go2_behaviours",
                 executable="sport_client_wrapper_node",
@@ -48,10 +81,31 @@ def generate_launch_description():
             ),
             Node(
                 package="go2_behaviours",
+                executable="mux_node",
+                name="mux_node",
+                output="screen",
+            ),
+            Node(
+                package="go2_behaviours",
                 executable="wander_node",
                 name="wander_node",
                 output="screen",
                 parameters=[params_file],
+            ),
+            Node(
+                package="go2_behaviours",
+                executable="obstacle_avoid_node",
+                name="obstacle_avoid_node",
+                output="screen",
+                parameters=[params_file],
+            ),
+            Node(
+                package="go2_behaviours",
+                executable="voice_command_mapper_node",
+                name="voice_command_mapper_node",
+                output="screen",
+                parameters=[params_file],
+                condition=IfCondition(enable_voice),
             ),
         ]
     )

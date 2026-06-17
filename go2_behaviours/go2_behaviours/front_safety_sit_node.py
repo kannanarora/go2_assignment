@@ -215,13 +215,13 @@ class FrontSafetySitNode(Node):
 
     def publish_command(self, command: str):
         if self.dry_run:
-            self.get_logger().warn("[DRY RUN] Would send command: %s" % command)
+            # self.get_logger().warn("[DRY RUN] Would send command: %s" % command)
             return
 
         msg = String()
         msg.data = command
         self.cmd_pub.publish(msg)
-        self.get_logger().warn("Sent command: %s" % command)
+        # self.get_logger().warn("Sent command: %s" % command)
 
 
 def main(args=None):

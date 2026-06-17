@@ -1,15 +1,3 @@
-behaviour_planner_node:
-  ros__parameters:
-    planned_behaviour_topic: /planned_behaviour
-    auto_publish: false
-    default_behaviour: stand
-    period_s: 5.0
-
-behaviour_executor_node:
-  ros__parameters:
-    planned_behaviour_topic: /planned_behaviour
-    trigger_behaviour_topic: /trigger_behaviour
-
 sport_client_wrapper_node:
   ros__parameters:
     trigger_topic: /trigger_behaviour
@@ -30,16 +18,26 @@ sit_stand_loop_node:
 
 wander_node:
   ros__parameters:
-    scan_topic: /front_scan
-    trigger_topic: /trigger_behaviour
-    cmd_vel_topic: /cmd_vel
+    trigger_topic: /wander_cmd
+    bark_topic: /bark
     forward_speed_mps: 0.66
     turn_speed_radps: 1.26
-    avoid_turn_speed_radps: 1.35
     min_turn_deg: 35.0
     max_turn_deg: 160.0
     min_walk_distance_m: 1.2
     max_walk_distance_m: 3.5
+    stop_duration_s: 0.4
+    trick_duration_s: 5.0
+    command_rate_hz: 10.0
+    log_rate_hz: 0.0
+    startup_command: balance_stand
+
+obstacle_avoid_node:
+  ros__parameters:
+    scan_topic: /front_scan
+    command_topic: /avoidance_cmd
+    turn_speed_radps: 1.26
+    avoid_turn_speed_radps: 1.35
     avoid_threshold_m: 1.45
     clear_threshold_m: 1.75
     front_half_angle_deg: 18.0
@@ -51,7 +49,6 @@ wander_node:
     scan_timeout_s: 1.5
     command_rate_hz: 10.0
     log_rate_hz: 0.0
-    startup_command: balance_stand
 
 approach_person_node:
   ros__parameters:
@@ -88,3 +85,37 @@ approach_person_node:
     arrival_command: sit
     arrival_command_repeats: 5
     arrival_command_period_s: 0.25
+
+voice_command_mapper_node:
+  ros__parameters:
+    text_topic: /go2/whisper/text
+    command_topic: /trick_cmd
+    cooldown_sec: 2.0
+    fuzzy_threshold: 0.8
+    forward_speed_mps: 0.66
+    turn_speed_radps: 1.26
+    trick_hold_sec: 0.6
+    move_duration_sec: 2.0
+    turn_duration_sec: 1.0
+    command_rate_hz: 10.0
+
+sound_player_node:
+  ros__parameters:
+    trigger_topic: /trigger_behaviour
+    sound_map:
+      - bark:go2_bark
+      - speak:go2_bark
+      - bark2:go2_bark2
+      - bark3:go2_bark3
+      - breathe:go2_breathing
+      - cry:go2_crying
+      - pant:go2_panting1
+      - pant2:go2_panting2
+      - pant3:go2_panting3
+
+random_bark_node:
+  ros__parameters:
+    trigger_topic: /trigger_behaviour
+    bark_token: bark
+    min_interval_s: 8.0
+    max_interval_s: 30.0

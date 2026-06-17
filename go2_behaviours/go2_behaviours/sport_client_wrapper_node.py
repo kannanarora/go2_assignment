@@ -26,7 +26,9 @@ SPORT_API_ID_RISESIT        = 1010
 SPORT_API_ID_HELLO          = 1016  # wave hello
 SPORT_API_ID_BALANCE_STAND  = 1002
 SPORT_API_ID_SWITCH_JOYSTICK = 1027
+SPORT_API_ID_STRETCH = 1017
 SPORT_API_ID_FREEWALK = 2045
+SPORT_API_ID_FREEWALK_AVOID = 2048
 SPORT_API_ID_DANCE1 = 1022          # Dance1 routine (Dance2 is 1023)
 
 
@@ -58,19 +60,20 @@ class SportClientWrapperNode(Node):
             10
         )
 
+        self._request_counter = 0
+
         self.command_handlers = {
             'stand': lambda: self.send_request(SPORT_API_ID_STAND_UP),
             'balance_stand': lambda: self.send_request(SPORT_API_ID_BALANCE_STAND),
+            'stretch': lambda: self.send_request(SPORT_API_ID_STRETCH),
             'free_walk': lambda: self.send_request(SPORT_API_ID_FREEWALK),
+            'free_avoid': lambda: self.send_request(SPORT_API_ID_FREEWALK_AVOID),
             'lie_down': lambda: self.send_request(SPORT_API_ID_STAND_DOWN),
             'stop': lambda: self.send_request(SPORT_API_ID_STOP_MOVE),
             'sit': lambda: self.send_request(SPORT_API_ID_SIT),
             'rise_sit': lambda: self.send_request(SPORT_API_ID_RISESIT),
             'hello': lambda: self.send_request(SPORT_API_ID_HELLO),
             'dance': lambda: self.send_request(SPORT_API_ID_DANCE1),
-            'walk': lambda: self.send_move_request(vx=0.5, vy=0.0, vyaw=0.0),
-            'turn_left': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=1),
-            'turn_right': lambda: self.send_move_request(vx=0.0, vy=0.0, vyaw=-1),
             'joystick_on': lambda: self.send_request(
                 SPORT_API_ID_SWITCH_JOYSTICK, {'data': True}
             ),
@@ -90,8 +93,6 @@ class SportClientWrapperNode(Node):
         raw_command = msg.data.strip()
         command = raw_command.lower()
 
-        self.get_logger().info(f'Received command: "{raw_command}"')
-
         handler = self.command_handlers.get(command)
         if handler is None:
             self.get_logger().warn('Unknown command: "%s" — ignoring.' % command)
@@ -107,9 +108,6 @@ class SportClientWrapperNode(Node):
         """
         req = self.build_request(api_id, params)
         self.request_pub.publish(req)
-        self.get_logger().info(
-            'Sent request: api_id=%d, params=%s' % (api_id, params)
-        )
 
     def build_request(
         self,
@@ -131,12 +129,9 @@ class SportClientWrapperNode(Node):
 
         return req
 
-    # Simple counter so each request gets a unique ID
-    _request_counter = 0
-
     def get_next_id(self) -> int:
-        SportClientWrapperNode._request_counter += 1
-        return SportClientWrapperNode._request_counter
+        self._request_counter += 1
+        return self._request_counter
 
 
 def main(args=None):
