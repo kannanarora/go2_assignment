@@ -1,15 +1,12 @@
 """
-Sound subsystem: generic trick sounds + optional ambient dog sounds.
+Sound subsystem: independent dog sounds.
 
-  sound_player_node   plays one-shot trick clips from /trigger_behaviour
-  dog_sounds_node     (optional) ambient panting from /cmd_vel + events
-  random_bark_node    (optional) publishes "bark" at random intervals
+  dog_sounds_node   owns AudioHub playback for behaviour + sound-only events
+  random_bark_node  publishes "bark" at random intervals on /dog_sound_trigger
 
 Clips must already be in AudioHub - provision them first with:
   ros2 launch go2_utils audiohub_player.launch.py \
       wav_file:=<abs path>/bark2.wav file_name:=bark2
-
-Edit SOUND_MAP below to add more token -> file_name pairs.
 """
 
 import os
@@ -21,20 +18,10 @@ from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-# token (spoken/published) -> file_name registered in AudioHub
-SOUND_MAP = [
-    "bark:bark",
-    "speak:bark",
-    "dance:bark2",
-    "sit:bark",
-    "lie_down:crying1",
-    "hello:bark",
-    "stretch:stretch1",
-]
-
 
 def generate_launch_description():
     trigger_topic = LaunchConfiguration("trigger_topic")
+    sound_trigger_topic = LaunchConfiguration("sound_trigger_topic")
     enable_random_bark = LaunchConfiguration("enable_random_bark")
     enable_dog_sounds = LaunchConfiguration("enable_dog_sounds")
     dog_sounds_params = os.path.join(
@@ -45,6 +32,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("trigger_topic", default_value="/trigger_behaviour"),
+        DeclareLaunchArgument("sound_trigger_topic", default_value="/dog_sound_trigger"),
         DeclareLaunchArgument(
             "enable_dog_sounds",
             default_value="true",
@@ -52,18 +40,8 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "enable_random_bark",
-            default_value="false",
-            description="Also run random_bark_node for autonomous barking",
-        ),
-        Node(
-            package="go2_behaviours",
-            executable="sound_player_node",
-            name="sound_player_node",
-            output="screen",
-            parameters=[{
-                "trigger_topic": trigger_topic,
-                "sound_map": SOUND_MAP,
-            }],
+            default_value="true",
+            description="Run random_bark_node on the sound-only trigger topic",
         ),
         Node(
             package="go2_behaviours",
@@ -71,7 +49,13 @@ def generate_launch_description():
             name="dog_sounds_node",
             output="screen",
             condition=IfCondition(enable_dog_sounds),
-            parameters=[dog_sounds_params],
+            parameters=[
+                dog_sounds_params,
+                {
+                    "behaviour_trigger_topic": trigger_topic,
+                    "sound_trigger_topic": sound_trigger_topic,
+                },
+            ],
         ),
         Node(
             package="go2_behaviours",
@@ -80,7 +64,9 @@ def generate_launch_description():
             output="screen",
             condition=IfCondition(enable_random_bark),
             parameters=[{
-                "trigger_topic": trigger_topic,
+                "trigger_topic": sound_trigger_topic,
+                "min_interval_s": 8.0,
+                "max_interval_s": 18.0,
             }],
         ),
     ])

@@ -73,8 +73,8 @@ def generate_launch_description():
             DeclareLaunchArgument("enable_voice", default_value="true"),
             DeclareLaunchArgument(
                 "enable_random_bark",
-                default_value="false",
-                description="Publish random bark tokens on /trigger_behaviour",
+                default_value="true",
+                description="Publish random bark tokens on /dog_sound_trigger",
             ),
             DeclareLaunchArgument(
                 "enable_approach",
@@ -151,13 +151,6 @@ def generate_launch_description():
                 output="screen",
                 parameters=[params_file],
                 condition=IfCondition(enable_approach),
-            ),
-            Node(
-                package="go2_behaviours",
-                executable="bark_node",
-                name="bark_node",
-                output="screen",
-                parameters=[params_file],
             ),
             Node(
                 package="go2_behaviours",

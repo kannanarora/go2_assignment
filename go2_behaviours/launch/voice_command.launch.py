@@ -42,7 +42,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("enable_whisper", default_value="true"),
-        DeclareLaunchArgument("enable_random_bark", default_value="false"),
+        DeclareLaunchArgument("enable_random_bark", default_value="true"),
         whisper_launch,
         sound_launch,
         Node(

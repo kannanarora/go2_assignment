@@ -7,12 +7,13 @@ Sound is a separate actuator from the body, so this node does NOT go
 through mux_node / Go2Command. It just watches the streams the mux already
 produces and reacts with audio, staying silent otherwise:
 
-    /cmd_vel            (mux MOVE output)  -> moving  -> pant continuously
-    /trigger_behaviour  (mux TRICK output) -> stretch/bark/... -> one-shot clip
+    /cmd_vel            (mux MOVE output)       -> moving  -> pant occasionally
+    /trigger_behaviour  (mux TRICK output)      -> stretch/... -> one-shot clip
+    /dog_sound_trigger  (sound-only events)     -> bark/... -> one-shot clip
 
 AudioHub plays one clip at a time (no true mixing), so the two tiers share
-the speaker by priority: while moving, panting loops back-to-back; an EVENT
-sound (from /trigger_behaviour) interrupts it and holds the speaker for a
+the speaker by priority: while moving, panting plays occasionally; an EVENT
+sound interrupts it and holds the speaker for a
 short busy window before panting resumes.
 
 Requires AudioHubClient and the referenced clips already in AudioHub
@@ -23,6 +24,7 @@ import random
 
 import rclpy
 from geometry_msgs.msg import Twist
+from rclpy.duration import Duration
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -37,6 +39,12 @@ class DogSoundsNode(Node):
         cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
         trigger_topic = self.declare_parameter(
             "trigger_topic", "/trigger_behaviour"
+        ).value
+        behaviour_trigger_topic = self.declare_parameter(
+            "behaviour_trigger_topic", trigger_topic
+        ).value
+        sound_trigger_topic = self.declare_parameter(
+            "sound_trigger_topic", "/dog_sound_trigger"
         ).value
 
         # --- EVENT tier: token -> file_name played one-shot ---
@@ -109,12 +117,24 @@ class DogSoundsNode(Node):
         self._last_breathe_time = self.get_clock().now()
 
         self.create_subscription(Twist, cmd_vel_topic, self._on_cmd_vel, 10)
-        self.create_subscription(String, trigger_topic, self._on_trigger, 10)
+        self.create_subscription(
+            String,
+            behaviour_trigger_topic,
+            self._on_behaviour_trigger,
+            10,
+        )
+        if sound_trigger_topic != behaviour_trigger_topic:
+            self.create_subscription(
+                String,
+                sound_trigger_topic,
+                self._on_sound_trigger,
+                10,
+            )
         self.create_timer(1.0 / max(ambient_rate_hz, 0.1), self._ambient_tick)
 
         self.get_logger().info(
-            "DogSoundsNode observing %s + %s (events=%s, pants=%d)"
-            % (cmd_vel_topic, trigger_topic,
+            "DogSoundsNode observing %s + %s + %s (events=%s, pants=%d)"
+            % (cmd_vel_topic, behaviour_trigger_topic, sound_trigger_topic,
                sorted(self._event_uuids), len(self._pant_uuids))
         )
 
@@ -151,9 +171,7 @@ class DogSoundsNode(Node):
     def _play_event(self, uuid):
         # events reserve the speaker so ambient won't cut them off
         self._client.play(uuid)
-        self._busy_until = self.get_clock().now() + rclpy.duration.Duration(
-            seconds=self.event_busy_s
-        )
+        self._busy_until = self.get_clock().now() + Duration(seconds=self.event_busy_s)
 
     def _play_ambient(self, uuid):
         # ambient (pant/breathe) does NOT reserve the speaker, so panting can
@@ -165,13 +183,23 @@ class DogSoundsNode(Node):
 
     # ---- EVENT tier (high priority) ----
 
-    def _on_trigger(self, msg: String):
-        uuid = self._event_uuids.get(msg.data.strip().lower())
+    def _play_trigger_token(self, token, source):
+        token = token.strip().lower()
+        uuid = self._event_uuids.get(token)
         if uuid is None:
             return
-        # events always win the speaker
         self._play_event(uuid)
-        self.get_logger().info("Event sound for '%s'" % msg.data.strip())
+        self.get_logger().info("Event sound for '%s' from %s" % (token, source))
+
+    def _on_behaviour_trigger(self, msg: String):
+        self._play_trigger_token(msg.data, "behaviour")
+
+    def _on_sound_trigger(self, msg: String):
+        self._play_trigger_token(msg.data, "sound")
+
+    def _on_trigger(self, msg: String):
+        # Backward-compatible callback name for old launch files/tests.
+        self._on_behaviour_trigger(msg)
 
     # ---- motion observation ----
 

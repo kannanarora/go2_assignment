@@ -139,7 +139,7 @@ sound_player_node:
 
 random_bark_node:
   ros__parameters:
-    trigger_topic: /trigger_behaviour
+    trigger_topic: /dog_sound_trigger
     bark_token: bark
     min_interval_s: 8.0
-    max_interval_s: 30.0
+    max_interval_s: 18.0
