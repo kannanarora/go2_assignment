@@ -6,13 +6,22 @@ person_tracker_node:
     person_nearby_topic: /person_nearby
     debug_image_topic: /person_tracker/debug_image
     debug_compressed_image_topic: /person_tracker/debug_image/compressed
+    inference_backend: tensorrt
+    fallback_to_opencv: false
     model_path: /home/unitree/ros2_ws/models/yolov5s.onnx
+    engine_path: /home/unitree/ros2_ws/models/yolov5s.engine
     input_width: 640
     input_height: 640
     min_confidence: 0.10
     nms_threshold: 0.45
+    min_bbox_width_ratio: 0.0
+    min_bbox_height_ratio: 0.0
+    debug_candidate_min_score: 0.03
+    debug_max_candidates: 8
     process_every_n_frames: 1
     publish_debug_image: true
+    publish_debug_raw_image: false
+    publish_debug_compressed_image: true
     debug_compressed_max_fps: 3.0
     debug_jpeg_quality: 70
     debug_log_interval_s: 2.0
@@ -21,5 +30,5 @@ person_tracker_node:
     nearby_threshold_m: 1.5
     visual_nearby_fallback: true
     visual_nearby_bbox_height_ratio: 0.45
-    detection_timeout_s: 0.7
+    detection_timeout_s: 1.0
     no_detection_publish_hz: 2.0
