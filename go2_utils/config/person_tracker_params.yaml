@@ -20,6 +20,8 @@ person_tracker_node:
     debug_max_candidates: 8
     process_every_n_frames: 1
     publish_debug_image: true
+    publish_debug_raw_image: false
+    publish_debug_compressed_image: true
     debug_compressed_max_fps: 3.0
     debug_jpeg_quality: 70
     debug_log_interval_s: 2.0

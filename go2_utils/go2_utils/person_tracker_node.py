@@ -273,6 +273,18 @@ class PersonTrackerNode(Node):
         self.publish_debug_image = bool(
             self.declare_parameter("publish_debug_image", True).value
         )
+        self.publish_debug_raw_image = bool(
+            self.declare_parameter(
+                "publish_debug_raw_image",
+                self.publish_debug_image,
+            ).value
+        )
+        self.publish_debug_compressed_image = bool(
+            self.declare_parameter(
+                "publish_debug_compressed_image",
+                self.publish_debug_image,
+            ).value
+        )
         self.debug_compressed_max_fps = float(
             self.declare_parameter("debug_compressed_max_fps", 3.0).value
         )
@@ -351,8 +363,9 @@ class PersonTrackerNode(Node):
         self.nearby_pub = self.create_publisher(Bool, self.person_nearby_topic, 10)
         self.debug_pub = None
         self.debug_compressed_pub = None
-        if self.publish_debug_image:
+        if self.publish_debug_raw_image:
             self.debug_pub = self.create_publisher(Image, self.debug_image_topic, 1)
+        if self.publish_debug_compressed_image:
             self.debug_compressed_pub = self.create_publisher(
                 CompressedImage,
                 self.debug_compressed_image_topic,
