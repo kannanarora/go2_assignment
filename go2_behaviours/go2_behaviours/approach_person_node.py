@@ -13,6 +13,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from sensor_msgs.msg import LaserScan
+from std_msgs.msg import String
 
 
 class ApproachPersonNode(Node):
@@ -26,6 +27,10 @@ class ApproachPersonNode(Node):
         self.command_topic = self.declare_parameter(
             "command_topic",
             "/approach_cmd",
+        ).value
+        self.trigger_topic = self.declare_parameter(
+            "trigger_topic",
+            "/approach_trigger",
         ).value
 
         self.stop_distance_m = float(
@@ -122,6 +127,13 @@ class ApproachPersonNode(Node):
             self.declare_parameter("command_rate_hz", 10.0).value
         )
         self.log_rate_hz = float(self.declare_parameter("log_rate_hz", 1.0).value)
+        self.active_on_start = bool(
+            self.declare_parameter("active_on_start", False).value
+        )
+        self.max_search_s = float(self.declare_parameter("max_search_s", 8.0).value)
+        self.max_behaviour_s = float(
+            self.declare_parameter("max_behaviour_s", 25.0).value
+        )
         self.startup_command = self.declare_parameter(
             "startup_command", "balance_stand"
         ).value
@@ -144,7 +156,9 @@ class ApproachPersonNode(Node):
         self.arrival_candidate_since = 0.0
         self.latest_scan = None
         self.latest_scan_time = 0.0
-        self.phase = "search"
+        self.active = self.active_on_start
+        self.active_since = time.monotonic() if self.active else 0.0
+        self.phase = "search" if self.active else "idle"
         self.avoid_direction = 1.0
         self.avoid_end_time = 0.0
         self.finished = False
@@ -163,6 +177,12 @@ class ApproachPersonNode(Node):
         )
 
         self.command_pub = self.create_publisher(Go2Command, self.command_topic, 10)
+        self.trigger_sub = self.create_subscription(
+            String,
+            self.trigger_topic,
+            self.trigger_callback,
+            10,
+        )
         self.person_sub = self.create_subscription(
             PersonTrack,
             self.person_track_topic,
@@ -179,17 +199,56 @@ class ApproachPersonNode(Node):
         timer_period = 1.0 / max(self.command_rate_hz, 1.0)
         self.timer = self.create_timer(timer_period, self.tick)
 
-        if self.startup_command:
+        if self.active and self.startup_command:
             self.publish_command(self.startup_command, force=True)
 
         self.get_logger().info(
-            "ApproachPersonNode tracking %s, stopping at %.2fm, avoiding front<%.2fm"
+            "ApproachPersonNode listening on %s, tracking %s, stopping at %.2fm, avoiding front<%.2fm"
             % (
+                self.trigger_topic,
                 self.person_track_topic,
                 self.stop_distance_m,
                 self.obstacle_stop_distance_m,
             )
         )
+
+    def trigger_callback(self, msg: String):
+        token = msg.data.strip().lower()
+        if token in ("cancel", "stop"):
+            self.deactivate("cancelled")
+            return
+
+        self.activate()
+
+    def activate(self):
+        self.active = True
+        self.active_since = time.monotonic()
+        self.reset_run_state()
+        if self.startup_command:
+            self.publish_command(self.startup_command, force=True)
+        self.get_logger().info("Approach person behaviour activated")
+
+    def deactivate(self, reason: str, publish_stop: bool = True):
+        if publish_stop:
+            self.publish_move(0.0, 0.0)
+        self.active = False
+        self.phase = "idle"
+        self.finished = True
+        self.arrival_candidate_since = 0.0
+        self.get_logger().info("Approach person behaviour inactive: %s" % reason)
+
+    def reset_run_state(self):
+        self.phase = "search"
+        self.finished = False
+        self.arrival_candidate_since = 0.0
+        self.last_approach_distance = None
+        self.last_approach_distance_time = 0.0
+        self.avoid_end_time = 0.0
+        self.arrival_repeat_count = 0
+        self.next_arrival_command_time = 0.0
+        self._last_vx = 0.0
+        self._last_vyaw = 0.0
+        self._last_command = None
 
     def person_callback(self, msg: PersonTrack):
         if not msg.visible:
@@ -210,10 +269,20 @@ class ApproachPersonNode(Node):
         self.latest_scan_time = time.monotonic()
 
     def tick(self):
+        if not self.active:
+            return
+
         if self.finished:
             return
 
         now = time.monotonic()
+        if (
+            self.max_behaviour_s > 0.0
+            and now - self.active_since >= self.max_behaviour_s
+        ):
+            self.deactivate("behaviour_timeout")
+            return
+
         if self.phase == "arrived":
             self.publish_arrival_command_if_due(now)
             return
@@ -240,6 +309,9 @@ class ApproachPersonNode(Node):
         if scan_stale:
             self.phase = "waiting_for_scan"
             self.publish_move(0.0, 0.0)
+            if self.search_timed_out(now, person_visible):
+                self.deactivate("scan_timeout")
+                return
             self.maybe_log("scan_stale", front)
             return
 
@@ -266,6 +338,9 @@ class ApproachPersonNode(Node):
         if not person_visible:
             self.phase = "search"
             self.publish_move(0.0, self.search_yaw_speed_radps)
+            if self.search_timed_out(now, person_visible):
+                self.deactivate("person_not_found")
+                return
             self.maybe_log("searching", front)
             return
 
@@ -273,6 +348,11 @@ class ApproachPersonNode(Node):
         vx, vyaw = self.approach_command(self.latest_person, front)
         self.publish_move(vx, vyaw)
         self.maybe_log("approach", front)
+
+    def search_timed_out(self, now: float, person_visible: bool) -> bool:
+        if self.max_search_s <= 0.0 or person_visible:
+            return False
+        return now - self.active_since >= self.max_search_s
 
     def approach_command(self, person: PersonTrack, front: float):
         bearing = float(person.bearing_rad)
@@ -388,8 +468,7 @@ class ApproachPersonNode(Node):
 
     def publish_arrival_command_if_due(self, now: float):
         if self.arrival_repeat_count >= self.arrival_command_repeats:
-            self.finished = True
-            self.get_logger().info("Approach person behaviour complete")
+            self.deactivate("complete", publish_stop=False)
             return
 
         if now < self.next_arrival_command_time:

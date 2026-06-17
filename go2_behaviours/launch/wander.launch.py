@@ -21,9 +21,21 @@ def generate_launch_description():
         "config",
         "cmd_vel_bridge_params.yaml",
     )
+    gstreamer_camera_params_file = os.path.join(
+        get_package_share_directory("go2_utils"),
+        "config",
+        "gstreamer_camera_params.yaml",
+    )
+    person_tracker_params_file = os.path.join(
+        get_package_share_directory("go2_utils"),
+        "config",
+        "person_tracker_params.yaml",
+    )
 
     enable_voice = LaunchConfiguration("enable_voice")
     enable_random_bark = LaunchConfiguration("enable_random_bark")
+    enable_approach = LaunchConfiguration("enable_approach")
+    enable_person_tracking = LaunchConfiguration("enable_person_tracking")
     enable_dog_sounds = LaunchConfiguration("enable_dog_sounds")
 
     utils_launch = IncludeLaunchDescription(
@@ -65,6 +77,16 @@ def generate_launch_description():
                 description="Publish random bark tokens on /trigger_behaviour",
             ),
             DeclareLaunchArgument(
+                "enable_approach",
+                default_value="true",
+                description="Enable voice-triggered approach person behaviour",
+            ),
+            DeclareLaunchArgument(
+                "enable_person_tracking",
+                default_value="true",
+                description="Start camera and person tracker for approach behaviour",
+            ),
+            DeclareLaunchArgument(
                 "enable_dog_sounds",
                 default_value="true",
                 description="Run ambient/event dog sounds observer node",
@@ -72,6 +94,22 @@ def generate_launch_description():
             utils_launch,
             whisper_launch,
             sound_launch,
+            Node(
+                package="go2_utils",
+                executable="gstreamer_camera_node",
+                name="gstreamer_camera_node",
+                output="screen",
+                parameters=[gstreamer_camera_params_file],
+                condition=IfCondition(enable_person_tracking),
+            ),
+            Node(
+                package="go2_utils",
+                executable="person_tracker_node",
+                name="person_tracker_node",
+                output="screen",
+                parameters=[person_tracker_params_file],
+                condition=IfCondition(enable_person_tracking),
+            ),
             Node(
                 package="go2_behaviours",
                 executable="sport_client_wrapper_node",
@@ -105,6 +143,14 @@ def generate_launch_description():
                 name="obstacle_avoid_node",
                 output="screen",
                 parameters=[params_file],
+            ),
+            Node(
+                package="go2_behaviours",
+                executable="approach_person_node",
+                name="approach_person_node",
+                output="screen",
+                parameters=[params_file],
+                condition=IfCondition(enable_approach),
             ),
             Node(
                 package="go2_behaviours",

@@ -1,6 +1,8 @@
 import os
 
 from ament_index_python.packages import get_package_share_directory
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch import LaunchDescription
 from launch_ros.actions import Node
 
@@ -16,9 +18,17 @@ def generate_launch_description():
         "config",
         "cmd_vel_bridge_params.yaml",
     )
+    person_tracking_launch = os.path.join(
+        get_package_share_directory("go2_utils"),
+        "launch",
+        "person_tracking.launch.py",
+    )
 
     return LaunchDescription(
         [
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(person_tracking_launch),
+            ),
             Node(
                 package="go2_behaviours",
                 executable="sport_client_wrapper_node",
@@ -44,7 +54,7 @@ def generate_launch_description():
                 executable="approach_person_node",
                 name="approach_person_node",
                 output="screen",
-                parameters=[behaviour_params],
+                parameters=[behaviour_params, {"active_on_start": True}],
             ),
         ]
     )
