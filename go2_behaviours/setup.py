@@ -26,6 +26,7 @@ setup(
             'front_safety_sit_node = go2_behaviours.front_safety_sit_node:main',
             'wander_node = go2_behaviours.wander_node:main',
             'approach_person_node = go2_behaviours.approach_person_node:main',
+            'avoid_people_node = go2_behaviours.avoid_people_node:main',
             'mux_node = go2_behaviours.mux_node:main',
             'obstacle_avoid_node = go2_behaviours.obstacle_avoid_node:main',
             'voice_command_mapper_node = go2_behaviours.voice_command_mapper_node:main',
