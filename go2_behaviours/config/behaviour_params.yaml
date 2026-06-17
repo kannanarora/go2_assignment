@@ -118,11 +118,7 @@ voice_command_mapper_node:
     approach_trigger_topic: /approach_trigger
     cooldown_sec: 2.0
     fuzzy_threshold: 0.8
-    forward_speed_mps: 0.50
-    turn_speed_radps: 1.00
     trick_hold_sec: 0.6
-    move_duration_sec: 2.0
-    turn_duration_sec: 1.0
     command_rate_hz: 10.0
 
 sound_player_node:

@@ -8,24 +8,21 @@ Map Whisper transcriptions to subsumption voice commands.
       -> Go2Command on /trick_cmd or String on /approach_trigger
 
 Trick tokens are forwarded by the MUX to /trigger_behaviour (sport client,
-sound_player). Move tokens are forwarded to /cmd_vel via the MUX. Approach
-tokens activate approach_person_node, which then publishes /approach_cmd.
+sound_player). Approach tokens activate approach_person_node, which then
+publishes /approach_cmd. Voice commands do not publish movement commands.
 """
 
 import time
 from difflib import SequenceMatcher
 
 import rclpy
-from geometry_msgs.msg import Twist
 from go2_interfaces.msg import Go2Command
 from rclpy.node import Node
 from std_msgs.msg import String
 
 
 COMMAND_RULES = [
-    (("turn left",), "turn_left"),
-    (("turn right",), "turn_right"),
-    (("come here", "byte", "bite", "come", "here"), "approach_person"),
+    (("come here", "come", "byte", "bite"), "approach_person"),
     (("lie down", "lay down", "lie", "lay"), "lie_down"),
     (("sit", "six", "sid", "sick", "shit", "down", "fit"), "sit"),
     (("stand", "get up", "stand up", "up"), "stand"),
@@ -33,11 +30,9 @@ COMMAND_RULES = [
     (("hello", "hey", "wave"), "hello"),
     (("dance", "dancing"), "dance"),
     (("bark", "speak", "bye", "mark", "arc", "fuck"), "bark"),
-    (("come", "walk", "forward"), "walk"),
 ]
 
 TRICK_TOKENS = {"sit", "stand", "lie_down", "stop", "hello", "bark", "dance"}
-MOVE_TOKENS = {"walk", "turn_left", "turn_right"}
 APPROACH_TOKENS = {"approach_person"}
 
 # Single word keywords used for the fuzzy fallback (phrases are skipped - they only ever match exactly)
@@ -106,26 +101,14 @@ def match_command(text, fuzzy_threshold=0.8, fuzzy_margin=0.1):
     )
 
 
-def build_go2_command(token, forward_speed_mps, turn_speed_radps):
+def build_go2_command(token):
     cmd = Go2Command()
     if token in TRICK_TOKENS:
         cmd.command_type = Go2Command.TRICK
         cmd.trick_name = token
         return cmd
 
-    twist = Twist()
-    if token == "walk":
-        twist.linear.x = float(forward_speed_mps)
-    elif token == "turn_left":
-        twist.angular.z = float(turn_speed_radps)
-    elif token == "turn_right":
-        twist.angular.z = -float(turn_speed_radps)
-    else:
-        return None
-
-    cmd.command_type = Go2Command.MOVE
-    cmd.twist_command = twist
-    return cmd
+    return None
 
 
 class VoiceCommandMapperNode(Node):
@@ -137,11 +120,7 @@ class VoiceCommandMapperNode(Node):
         self.declare_parameter("approach_trigger_topic", "/approach_trigger")
         self.declare_parameter("cooldown_sec", 2.0)
         self.declare_parameter("fuzzy_threshold", 0.8)
-        self.declare_parameter("forward_speed_mps", 0.66)
-        self.declare_parameter("turn_speed_radps", 1.26)
         self.declare_parameter("trick_hold_sec", 0.6)
-        self.declare_parameter("move_duration_sec", 2.0)
-        self.declare_parameter("turn_duration_sec", 1.0)
         self.declare_parameter("command_rate_hz", 10.0)
 
         self.text_topic = self.get_parameter("text_topic").value
@@ -149,11 +128,7 @@ class VoiceCommandMapperNode(Node):
         self.approach_trigger_topic = self.get_parameter("approach_trigger_topic").value
         self.cooldown_sec = float(self.get_parameter("cooldown_sec").value)
         self.fuzzy_threshold = float(self.get_parameter("fuzzy_threshold").value)
-        self.forward_speed_mps = float(self.get_parameter("forward_speed_mps").value)
-        self.turn_speed_radps = float(self.get_parameter("turn_speed_radps").value)
         self.trick_hold_sec = float(self.get_parameter("trick_hold_sec").value)
-        self.move_duration_sec = float(self.get_parameter("move_duration_sec").value)
-        self.turn_duration_sec = float(self.get_parameter("turn_duration_sec").value)
         command_rate_hz = float(self.get_parameter("command_rate_hz").value)
 
         self.last_fire = 0.0
@@ -187,10 +162,6 @@ class VoiceCommandMapperNode(Node):
     def hold_duration_for(self, token):
         if token in TRICK_TOKENS:
             return self.trick_hold_sec
-        if token in ("turn_left", "turn_right"):
-            return self.turn_duration_sec
-        if token == "walk":
-            return self.move_duration_sec
         return self.trick_hold_sec
 
     def republish_active(self):
@@ -230,7 +201,7 @@ class VoiceCommandMapperNode(Node):
             self.get_logger().info("'%s' -> %s [%s]" % (text, token, detail))
             return
 
-        cmd = build_go2_command(token, self.forward_speed_mps, self.turn_speed_radps)
+        cmd = build_go2_command(token)
         if cmd is None:
             self.get_logger().warn("no Go2Command mapping for '%s'" % token)
             return
