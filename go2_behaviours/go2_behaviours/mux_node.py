@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Multiplexer node for subsumption
 # This runs every 0.1 second and is always giving a command every 0.1 seconds
 # If there is no recent command then it send an empty command to make the robot
@@ -8,10 +10,6 @@ from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
 from go2_interfaces.msg import Go2Command
-
-# TODO just do the last wonder command as a base
-# however, if switching from a different command, it should only perform the command if it's fresh
-
 
 class MuxNode(Node):
     def __init__(self):
@@ -63,7 +61,7 @@ class MuxNode(Node):
             10
         )
 
-        # CONTROL LOOP (runs at 4Hz / every 0.1 seconds)
+        # CONTROL LOOP (runs at 4Hz / every 0.25 seconds)
         self.timer = self.create_timer(0.25, self.publish_highest_priority)
         self.get_logger().info("Simple Mux Started. Waiting for commands...")
 
@@ -106,7 +104,33 @@ class MuxNode(Node):
     # If twist publish to cmd_vel
     # if trick publish directly to trick
     def publish_command(self, msg):
+        
+        # 1. Determine what the new intended mode is
+        if msg.command_type == Go2Command.TRICK:
+            intended_mode = msg.trick_name
+        elif msg.command_type == Go2Command.MOVE:
+            intended_mode = 'move'
+        else:
+            intended_mode = 'stand'
 
+        # 2. INTERCEPTOR: If sitting and wanting to do something else, start rising
+        if self.robot_state['mode'] == 'sit' and intended_mode != 'sit':
+            self.robot_state = {'mode': 'rise_sit', 'tick': 0}
+            s = String()
+            s.data = 'rise_sit'
+            self.trigger_behaviour_pub.publish(s)
+            self.get_logger().info(f"INTERCEPT: Rising from sit before executing {intended_mode}.")
+            return # Block the actual intended command for now
+
+        # 3. INTERCEPTOR: If currently rising, hold until 4 ticks have passed
+        if self.robot_state['mode'] == 'rise_sit':
+            if self.robot_state['tick'] < 4:
+                self.robot_state['tick'] += 1
+                self.get_logger().info(f"INTERCEPT: Waiting for rise_sit to finish ({self.robot_state['tick']}/4)...")
+                return # Block the intended command while rising
+            # If tick is >= 4, it falls through to normal execution below!
+
+        # 4. NORMAL EXECUTION
         if msg.command_type == Go2Command.TRICK:
             s = String()
             s.data = msg.trick_name
@@ -118,6 +142,7 @@ class MuxNode(Node):
             else:
                 self.get_logger().info(f"SKIPPING PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
                 self.robot_state['tick'] = self.robot_state['tick'] + 1
+                
         elif msg.command_type == Go2Command.MOVE:
             if self.robot_state['mode'] == 'move':
                 self.robot_state['tick'] = self.robot_state['tick'] + 1
@@ -125,6 +150,7 @@ class MuxNode(Node):
                 self.robot_state = {'mode': 'move', 'tick': 0}
             self.cmd_vel_pub.publish(msg.twist_command)
             self.get_logger().info(f"PUBLISH MOVE: {self.robot_state}; FOR TIER: {self.active_teir}")
+            
         else:
             # If empty command or STAY, just make go2 balance stand
             s = String()
@@ -167,7 +193,6 @@ def main(args=None):
     finally:
         node.destroy_node()
         rclpy.shutdown()
-
 
 if __name__ == "__main__":
     main()
