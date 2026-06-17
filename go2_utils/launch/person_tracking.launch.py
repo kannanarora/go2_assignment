@@ -9,7 +9,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     share_dir = get_package_share_directory("go2_utils")
-    camera_params = os.path.join(
+    gstreamer_camera_params = os.path.join(
         share_dir,
         "config",
         "gstreamer_camera_params.yaml",
@@ -35,7 +35,7 @@ def generate_launch_description():
                 executable="gstreamer_camera_node",
                 name="gstreamer_camera_node",
                 output="screen",
-                parameters=[camera_params],
+                parameters=[gstreamer_camera_params],
             ),
             Node(
                 package="go2_utils",
