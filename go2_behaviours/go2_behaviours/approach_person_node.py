@@ -31,24 +31,24 @@ class ApproachPersonNode(Node):
         ).value
 
         self.stop_distance_m = float(
-            self.declare_parameter("stop_distance_m", 1.0).value
+            self.declare_parameter("stop_distance_m", 0.75).value
         )
         self.distance_tolerance_m = float(
             self.declare_parameter("distance_tolerance_m", 0.08).value
         )
         self.forward_speed_mps = float(
-            self.declare_parameter("forward_speed_mps", 0.25).value
+            self.declare_parameter("forward_speed_mps", 0.18).value
         )
         self.min_forward_speed_mps = float(
-            self.declare_parameter("min_forward_speed_mps", 0.08).value
+            self.declare_parameter("min_forward_speed_mps", 0.05).value
         )
         self.search_yaw_speed_radps = float(
             self.declare_parameter("search_yaw_speed_radps", 0.45).value
         )
         self.max_yaw_speed_radps = float(
-            self.declare_parameter("max_yaw_speed_radps", 0.85).value
+            self.declare_parameter("max_yaw_speed_radps", 0.55).value
         )
-        self.yaw_kp = float(self.declare_parameter("yaw_kp", 1.6).value)
+        self.yaw_kp = float(self.declare_parameter("yaw_kp", 1.2).value)
         self.yaw_sign = float(self.declare_parameter("yaw_sign", 1.0).value)
         self.centered_bearing_rad = float(
             self.declare_parameter("centered_bearing_rad", 0.08).value
@@ -69,11 +69,17 @@ class ApproachPersonNode(Node):
             self.declare_parameter("arrival_centered_bearing_rad", 0.16).value
         )
 
+        self.person_obstacle_bearing_gate_rad = float(
+            self.declare_parameter("person_obstacle_bearing_gate_rad", 0.35).value
+        )
+        self.person_obstacle_distance_tolerance_m = float(
+            self.declare_parameter("person_obstacle_distance_tolerance_m", 0.35).value
+        )
         self.obstacle_stop_distance_m = float(
-            self.declare_parameter("obstacle_stop_distance_m", 0.75).value
+            self.declare_parameter("obstacle_stop_distance_m", 0.65).value
         )
         self.obstacle_clear_distance_m = float(
-            self.declare_parameter("obstacle_clear_distance_m", 1.05).value
+            self.declare_parameter("obstacle_clear_distance_m", 0.90).value
         )
         self.front_half_angle_deg = float(
             self.declare_parameter("front_half_angle_deg", 18.0).value
@@ -85,9 +91,9 @@ class ApproachPersonNode(Node):
             self.declare_parameter("side_sector_max_deg", 80.0).value
         )
         self.avoid_yaw_speed_radps = float(
-            self.declare_parameter("avoid_yaw_speed_radps", 0.65).value
+            self.declare_parameter("avoid_yaw_speed_radps", 0.35).value
         )
-        self.max_avoid_s = float(self.declare_parameter("max_avoid_s", 5.0).value)
+        self.max_avoid_s = float(self.declare_parameter("max_avoid_s", 2.0).value)
 
         self.person_timeout_s = float(
             self.declare_parameter("person_timeout_s", 0.8).value
@@ -195,12 +201,21 @@ class ApproachPersonNode(Node):
         scan_stale = self.scan_is_stale(now)
         person_visible = self.person_is_confirmed(now)
         front = self.sector_min(-self.front_half_angle_deg, self.front_half_angle_deg)
-        blocked = (
+        front_is_person = (
+            person_visible and self.front_return_matches_person(self.latest_person, front)
+        )
+        blocked_by_front = (
             not scan_stale
             and math.isfinite(front)
             and front < self.obstacle_stop_distance_m
         )
-        clear = scan_stale or (not math.isfinite(front)) or front > self.obstacle_clear_distance_m
+        blocked = blocked_by_front and not front_is_person
+        clear = (
+            scan_stale
+            or front_is_person
+            or (not math.isfinite(front))
+            or front > self.obstacle_clear_distance_m
+        )
 
         if scan_stale:
             self.phase = "waiting_for_scan"
@@ -265,7 +280,7 @@ class ApproachPersonNode(Node):
         if abs(bearing) <= self.centered_bearing_rad:
             speed = max(speed, self.min_forward_speed_mps)
 
-        if math.isfinite(front):
+        if math.isfinite(front) and not self.front_return_matches_person(person, front):
             obstacle_margin = front - self.obstacle_stop_distance_m
             if obstacle_margin <= 0.0:
                 speed = 0.0
@@ -273,6 +288,18 @@ class ApproachPersonNode(Node):
                 speed *= self.clamp(obstacle_margin / 0.5, 0.0, 1.0)
 
         return speed, yaw
+
+    def front_return_matches_person(self, person: PersonTrack, front: float) -> bool:
+        if person is None or not math.isfinite(front) or not person.distance_valid:
+            return False
+
+        if abs(float(person.bearing_rad)) > self.person_obstacle_bearing_gate_rad:
+            return False
+
+        return (
+            abs(float(person.distance_m) - float(front))
+            <= self.person_obstacle_distance_tolerance_m
+        )
 
     def has_arrived(self, person: PersonTrack):
         if not person.distance_valid:
