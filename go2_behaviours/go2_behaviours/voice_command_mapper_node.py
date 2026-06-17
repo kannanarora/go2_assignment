@@ -5,10 +5,11 @@ Map Whisper transcriptions to subsumption voice commands.
 
   /go2/whisper/text  (std_msgs/String, free text e.g. "sit down")
       -> keyword match (then fuzzy fallback) -> token e.g. "sit"
-      -> Go2Command on /trick_cmd (consumed by mux_node)
+      -> Go2Command on /trick_cmd or String on /approach_trigger
 
 Trick tokens are forwarded by the MUX to /trigger_behaviour (sport client,
-sound_player). Move tokens are forwarded to /cmd_vel via the MUX.
+sound_player). Move tokens are forwarded to /cmd_vel via the MUX. Approach
+tokens activate approach_person_node, which then publishes /approach_cmd.
 """
 
 import time
@@ -24,6 +25,7 @@ from std_msgs.msg import String
 COMMAND_RULES = [
     (("turn left",), "turn_left"),
     (("turn right",), "turn_right"),
+    (("come here", "byte", "bite", "come", "here"), "approach_person"),
     (("lie down", "lay down", "lie", "lay"), "lie_down"),
     (("sit", "six", "sid", "sick", "shit", "down", "fit"), "sit"),
     (("stand", "get up", "stand up", "up"), "stand"),
@@ -36,6 +38,7 @@ COMMAND_RULES = [
 
 TRICK_TOKENS = {"sit", "stand", "lie_down", "stop", "hello", "bark", "dance"}
 MOVE_TOKENS = {"walk", "turn_left", "turn_right"}
+APPROACH_TOKENS = {"approach_person"}
 
 # Single word keywords used for the fuzzy fallback (phrases are skipped - they only ever match exactly)
 FUZZY_KEYWORDS = [
@@ -50,6 +53,16 @@ def _normalize(text):
     return " ".join(cleaned.lower().split())
 
 
+def _contains_keyword(normalized, keyword):
+    words = normalized.split()
+    keyword_words = keyword.split()
+    if not keyword_words:
+        return False
+
+    n = len(keyword_words)
+    return any(words[i : i + n] == keyword_words for i in range(len(words) - n + 1))
+
+
 def match_command(text, fuzzy_threshold=0.8, fuzzy_margin=0.1):
     """Match a transcription to a behaviour token, with reasoning."""
     normalized = _normalize(text)
@@ -58,7 +71,7 @@ def match_command(text, fuzzy_threshold=0.8, fuzzy_margin=0.1):
 
     for keywords, token in COMMAND_RULES:
         for kw in keywords:
-            if kw in normalized:
+            if _contains_keyword(normalized, kw):
                 return token, "keyword '%s'" % kw
 
     best_score = {}
@@ -121,6 +134,7 @@ class VoiceCommandMapperNode(Node):
 
         self.declare_parameter("text_topic", "/go2/whisper/text")
         self.declare_parameter("command_topic", "/trick_cmd")
+        self.declare_parameter("approach_trigger_topic", "/approach_trigger")
         self.declare_parameter("cooldown_sec", 2.0)
         self.declare_parameter("fuzzy_threshold", 0.8)
         self.declare_parameter("forward_speed_mps", 0.66)
@@ -132,6 +146,7 @@ class VoiceCommandMapperNode(Node):
 
         self.text_topic = self.get_parameter("text_topic").value
         self.command_topic = self.get_parameter("command_topic").value
+        self.approach_trigger_topic = self.get_parameter("approach_trigger_topic").value
         self.cooldown_sec = float(self.get_parameter("cooldown_sec").value)
         self.fuzzy_threshold = float(self.get_parameter("fuzzy_threshold").value)
         self.forward_speed_mps = float(self.get_parameter("forward_speed_mps").value)
@@ -146,6 +161,11 @@ class VoiceCommandMapperNode(Node):
         self.active_until = 0.0
 
         self.pub = self.create_publisher(Go2Command, self.command_topic, 10)
+        self.approach_pub = self.create_publisher(
+            String,
+            self.approach_trigger_topic,
+            10,
+        )
         self.sub = self.create_subscription(
             String,
             self.text_topic,
@@ -155,8 +175,13 @@ class VoiceCommandMapperNode(Node):
         self.timer = self.create_timer(1.0 / max(command_rate_hz, 1.0), self.republish_active)
 
         self.get_logger().info(
-            "Mapping %s -> %s (cooldown=%.1fs)"
-            % (self.text_topic, self.command_topic, self.cooldown_sec)
+            "Mapping %s -> %s and %s (cooldown=%.1fs)"
+            % (
+                self.text_topic,
+                self.command_topic,
+                self.approach_trigger_topic,
+                self.cooldown_sec,
+            )
         )
 
     def hold_duration_for(self, token):
@@ -196,6 +221,14 @@ class VoiceCommandMapperNode(Node):
             )
             return
         self.last_fire = now
+
+        if token in APPROACH_TOKENS:
+            self.active_cmd = None
+            trigger = String()
+            trigger.data = token
+            self.approach_pub.publish(trigger)
+            self.get_logger().info("'%s' -> %s [%s]" % (text, token, detail))
+            return
 
         cmd = build_go2_command(token, self.forward_speed_mps, self.turn_speed_radps)
         if cmd is None:

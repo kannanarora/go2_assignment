@@ -69,6 +69,7 @@ approach_person_node:
     person_track_topic: /person_track
     scan_topic: /front_scan
     command_topic: /approach_cmd
+    trigger_topic: /approach_trigger
     stop_distance_m: 1.10
     distance_tolerance_m: 0.10
     forward_speed_mps: 0.42
@@ -102,6 +103,9 @@ approach_person_node:
     scan_timeout_s: 1.5
     command_rate_hz: 10.0
     log_rate_hz: 1.0
+    active_on_start: false
+    max_search_s: 8.0
+    max_behaviour_s: 25.0
     startup_command: balance_stand
     arrival_command: sit
     arrival_command_repeats: 5
@@ -111,6 +115,7 @@ voice_command_mapper_node:
   ros__parameters:
     text_topic: /go2/whisper/text
     command_topic: /trick_cmd
+    approach_trigger_topic: /approach_trigger
     cooldown_sec: 2.0
     fuzzy_threshold: 0.8
     forward_speed_mps: 0.50
