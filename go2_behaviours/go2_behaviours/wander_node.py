@@ -40,7 +40,7 @@ class WanderNode(Node):
         # Stand is 5 seconds
         # Sit is 1-1.5 seconds
         self.trick_duration = float(
-            self.declare_parameter("trick_duration_s", 5).value
+            self.declare_parameter("trick_duration_s", 5.5).value
         )
         self.bark_duration = float(
             self.declare_parameter("bark_duration_s", 1).value

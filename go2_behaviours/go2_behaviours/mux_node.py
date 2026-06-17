@@ -34,7 +34,7 @@ class MuxNode(Node):
         self.state = {
             'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 4}, # Priority 1 (Highest)
             'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 1}, # Priority 2
-            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 5}  # Priority 3 (Lowest)
+            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 6}  # Priority 3 (Lowest)
         }
         # General robot state trick/avoid/wander
         self.active_teir = 'none'
@@ -106,25 +106,27 @@ class MuxNode(Node):
     # If twist publish to cmd_vel
     # if trick publish directly to trick
     def publish_command(self, msg):
-        self.get_logger().info(f"ROBOT STATE: {self.robot_state}; FOR TIER: {self.active_teir}")
 
         if msg.command_type == Go2Command.TRICK:
             s = String()
             s.data = msg.trick_name
             # Only send go2 trick command once
             if self.robot_state != msg.trick_name:
-                self.get_logger().info("Executing trick")
+                self.get_logger().info(f"PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
                 self.trigger_behaviour_pub.publish(s)
                 self.robot_state = msg.trick_name
+            self.get_logger().info(f"SKIPPING PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
         elif msg.command_type == Go2Command.MOVE:
             self.robot_state = 'move'
             self.cmd_vel_pub.publish(msg.twist_command)
+            self.get_logger().info(f"PUBLISH MOVE: {self.robot_state}; FOR TIER: {self.active_teir}")
         else:
             # If empty command or STAY, just make go2 balance stand
             s = String()
             s.data = 'balance_stand'
             self.robot_state = 'stand'
             self.trigger_behaviour_pub.publish(s)
+            self.get_logger().info(f"PUBLISHING STAND: {self.robot_state}; FOR TIER: {self.active_teir}")
 
 
     # Check if message is recent enough to be action

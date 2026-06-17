@@ -34,8 +34,6 @@ class CmdVelBridgeNode(Node):
         # Publisher
         self.request_pub = self.create_publisher(Request, self.request_topic, 10)
 
-        self.get_logger().info(f"Instant CmdVelBridge Started. Listening exclusively to {self.cmd_vel_topic}")
-
     def cmd_vel_callback(self, msg: Twist):
         vx = self.clamp(msg.linear.x, -self.max_linear_speed_mps, self.max_linear_speed_mps)
         vy = self.clamp(msg.linear.y, -self.max_lateral_speed_mps, self.max_lateral_speed_mps)
