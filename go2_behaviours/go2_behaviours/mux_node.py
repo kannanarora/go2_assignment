@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # Multiplexer node for subsumption
-# This runs every 0.1 second and is always giving a command every 0.1 seconds
+# This runs every 0.25 seconds and publishes the highest-priority fresh command.
 # If there is no recent command then it send an empty command to make the robot
 # do nothing but stand
 
@@ -30,9 +30,10 @@ class MuxNode(Node):
         # STATE STORAGE
         # We store the latest message and the time it was received
         self.state = {
-            'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 1 (Highest)
-            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 2
-            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 6}  # Priority 3 (Lowest)
+            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 1 (Highest)
+            'approach': {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 2
+            'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 3
+            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 6}  # Priority 4 (Lowest)
         }
         # General robot state trick/avoid/wander
         self.active_teir = 'none'
@@ -76,12 +77,15 @@ class MuxNode(Node):
         selected_msg = Go2Command() # Defaults nil which stops go2
 
         # Check in order of highest priority to lowest
-        if self.is_active('avoid', now):
-            selected_msg = self.state['avoid']['msg']
-            self.active_teir = 'avoid'
-        elif self.is_active('trick', now):
+        if self.is_active('trick', now):
             selected_msg = self.state['trick']['msg']
             self.active_teir = 'trick'
+        elif self.is_active('approach', now):
+            selected_msg = self.state['approach']['msg']
+            self.active_teir = 'approach'
+        elif self.is_active('avoid', now):
+            selected_msg = self.state['avoid']['msg']
+            self.active_teir = 'avoid'
         elif self.is_active('wander', now) and self.should_wander():
             selected_msg = self.state['wander']['msg']
             self.active_teir = 'wander'
