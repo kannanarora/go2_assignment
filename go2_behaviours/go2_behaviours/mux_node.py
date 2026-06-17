@@ -54,6 +54,12 @@ class MuxNode(Node):
             self.trick_callback,
             10
         )
+        self.approach_sub = self.create_subscription(
+            Go2Command,
+            "/approach_cmd",
+            self.approach_callback,
+            10
+        )
         self.avoidance_sub = self.create_subscription(
             Go2Command,
             "/avoidance_cmd",
@@ -195,6 +201,10 @@ class MuxNode(Node):
     def trick_callback(self, msg: Go2Command):
         self.state['trick']['msg'] = msg
         self.state['trick']['time'] = self.get_clock().now()
+
+    def approach_callback(self, msg: Go2Command):
+        self.state['approach']['msg'] = msg
+        self.state['approach']['time'] = self.get_clock().now()
 
     def avoid_callback(self, msg: Go2Command):
         self.state['avoid']['msg'] = msg

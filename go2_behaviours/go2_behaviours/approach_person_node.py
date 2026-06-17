@@ -4,8 +4,7 @@ import math
 import time
 
 import rclpy
-from geometry_msgs.msg import Twist
-from go2_interfaces.msg import PersonTrack
+from go2_interfaces.msg import Go2Command, PersonTrack
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -14,7 +13,6 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import String
 
 
 class ApproachPersonNode(Node):
@@ -25,36 +23,48 @@ class ApproachPersonNode(Node):
             "person_track_topic", "/person_track"
         ).value
         self.scan_topic = self.declare_parameter("scan_topic", "/front_scan").value
-        self.cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
-        self.trigger_topic = self.declare_parameter(
-            "trigger_topic", "/trigger_behaviour"
+        self.command_topic = self.declare_parameter(
+            "command_topic",
+            "/approach_cmd",
         ).value
 
         self.stop_distance_m = float(
-            self.declare_parameter("stop_distance_m", 1.0).value
+            self.declare_parameter("stop_distance_m", 1.10).value
         )
         self.distance_tolerance_m = float(
-            self.declare_parameter("distance_tolerance_m", 0.08).value
+            self.declare_parameter("distance_tolerance_m", 0.10).value
         )
         self.forward_speed_mps = float(
-            self.declare_parameter("forward_speed_mps", 0.25).value
+            self.declare_parameter("forward_speed_mps", 0.42).value
         )
         self.min_forward_speed_mps = float(
-            self.declare_parameter("min_forward_speed_mps", 0.08).value
+            self.declare_parameter("min_forward_speed_mps", 0.26).value
+        )
+        self.approach_slowdown_distance_m = float(
+            self.declare_parameter("approach_slowdown_distance_m", 0.30).value
+        )
+        self.min_bearing_speed_scale = float(
+            self.declare_parameter("min_bearing_speed_scale", 0.50).value
         )
         self.search_yaw_speed_radps = float(
-            self.declare_parameter("search_yaw_speed_radps", 0.45).value
+            self.declare_parameter("search_yaw_speed_radps", 0.55).value
         )
         self.max_yaw_speed_radps = float(
-            self.declare_parameter("max_yaw_speed_radps", 0.85).value
+            self.declare_parameter("max_yaw_speed_radps", 0.55).value
         )
-        self.yaw_kp = float(self.declare_parameter("yaw_kp", 1.6).value)
+        self.max_walk_yaw_speed_radps = float(
+            self.declare_parameter("max_walk_yaw_speed_radps", 0.18).value
+        )
+        self.yaw_kp = float(self.declare_parameter("yaw_kp", 0.90).value)
         self.yaw_sign = float(self.declare_parameter("yaw_sign", 1.0).value)
         self.centered_bearing_rad = float(
-            self.declare_parameter("centered_bearing_rad", 0.08).value
+            self.declare_parameter("centered_bearing_rad", 0.18).value
+        )
+        self.walk_with_turn_bearing_rad = float(
+            self.declare_parameter("walk_with_turn_bearing_rad", 0.35).value
         )
         self.turn_in_place_bearing_rad = float(
-            self.declare_parameter("turn_in_place_bearing_rad", 0.40).value
+            self.declare_parameter("turn_in_place_bearing_rad", 0.60).value
         )
         self.min_person_confidence = float(
             self.declare_parameter("min_person_confidence", 0.40).value
@@ -66,14 +76,26 @@ class ApproachPersonNode(Node):
             self.declare_parameter("arrival_confirm_s", 0.45).value
         )
         self.arrival_centered_bearing_rad = float(
-            self.declare_parameter("arrival_centered_bearing_rad", 0.16).value
+            self.declare_parameter("arrival_centered_bearing_rad", 0.25).value
         )
 
+        self.person_obstacle_bearing_gate_rad = float(
+            self.declare_parameter("person_obstacle_bearing_gate_rad", 0.35).value
+        )
+        self.person_obstacle_distance_tolerance_m = float(
+            self.declare_parameter("person_obstacle_distance_tolerance_m", 0.35).value
+        )
+        self.centered_front_is_person_max_distance_m = float(
+            self.declare_parameter(
+                "centered_front_is_person_max_distance_m",
+                2.5,
+            ).value
+        )
         self.obstacle_stop_distance_m = float(
-            self.declare_parameter("obstacle_stop_distance_m", 0.75).value
+            self.declare_parameter("obstacle_stop_distance_m", 0.65).value
         )
         self.obstacle_clear_distance_m = float(
-            self.declare_parameter("obstacle_clear_distance_m", 1.05).value
+            self.declare_parameter("obstacle_clear_distance_m", 0.90).value
         )
         self.front_half_angle_deg = float(
             self.declare_parameter("front_half_angle_deg", 18.0).value
@@ -85,12 +107,15 @@ class ApproachPersonNode(Node):
             self.declare_parameter("side_sector_max_deg", 80.0).value
         )
         self.avoid_yaw_speed_radps = float(
-            self.declare_parameter("avoid_yaw_speed_radps", 0.65).value
+            self.declare_parameter("avoid_yaw_speed_radps", 0.35).value
         )
-        self.max_avoid_s = float(self.declare_parameter("max_avoid_s", 5.0).value)
+        self.max_avoid_s = float(self.declare_parameter("max_avoid_s", 2.0).value)
 
         self.person_timeout_s = float(
             self.declare_parameter("person_timeout_s", 0.8).value
+        )
+        self.distance_memory_s = float(
+            self.declare_parameter("distance_memory_s", 0.7).value
         )
         self.scan_timeout_s = float(self.declare_parameter("scan_timeout_s", 1.5).value)
         self.command_rate_hz = float(
@@ -114,6 +139,8 @@ class ApproachPersonNode(Node):
         self.latest_person = None
         self.latest_person_time = 0.0
         self.person_seen_since = 0.0
+        self.last_approach_distance = None
+        self.last_approach_distance_time = 0.0
         self.arrival_candidate_since = 0.0
         self.latest_scan = None
         self.latest_scan_time = 0.0
@@ -123,6 +150,8 @@ class ApproachPersonNode(Node):
         self.finished = False
         self.arrival_repeat_count = 0
         self.next_arrival_command_time = 0.0
+        self._last_vx = 0.0
+        self._last_vyaw = 0.0
         self._last_command = None
         self._last_log_time = 0.0
 
@@ -133,8 +162,7 @@ class ApproachPersonNode(Node):
             durability=DurabilityPolicy.VOLATILE,
         )
 
-        self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
-        self.trigger_pub = self.create_publisher(String, self.trigger_topic, 10)
+        self.command_pub = self.create_publisher(Go2Command, self.command_topic, 10)
         self.person_sub = self.create_subscription(
             PersonTrack,
             self.person_track_topic,
@@ -183,24 +211,31 @@ class ApproachPersonNode(Node):
 
     def tick(self):
         if self.finished:
-            self.publish_move(0.0, 0.0)
             return
 
         now = time.monotonic()
         if self.phase == "arrived":
-            self.publish_move(0.0, 0.0)
             self.publish_arrival_command_if_due(now)
             return
 
         scan_stale = self.scan_is_stale(now)
         person_visible = self.person_is_confirmed(now)
         front = self.sector_min(-self.front_half_angle_deg, self.front_half_angle_deg)
-        blocked = (
+        front_is_person = (
+            person_visible and self.front_return_matches_person(self.latest_person, front)
+        )
+        blocked_by_front = (
             not scan_stale
             and math.isfinite(front)
             and front < self.obstacle_stop_distance_m
         )
-        clear = scan_stale or (not math.isfinite(front)) or front > self.obstacle_clear_distance_m
+        blocked = blocked_by_front and not front_is_person
+        clear = (
+            scan_stale
+            or front_is_person
+            or (not math.isfinite(front))
+            or front > self.obstacle_clear_distance_m
+        )
 
         if scan_stale:
             self.phase = "waiting_for_scan"
@@ -208,7 +243,7 @@ class ApproachPersonNode(Node):
             self.maybe_log("scan_stale", front)
             return
 
-        if person_visible and self.has_arrived(self.latest_person):
+        if person_visible and self.has_arrived(self.latest_person, front):
             if self.arrival_candidate_since == 0.0:
                 self.arrival_candidate_since = now
             if now - self.arrival_candidate_since >= self.arrival_confirm_s:
@@ -241,31 +276,45 @@ class ApproachPersonNode(Node):
 
     def approach_command(self, person: PersonTrack, front: float):
         bearing = float(person.bearing_rad)
+        yaw_error = self.centered_yaw_error(bearing)
         yaw = self.clamp(
-            self.yaw_sign * self.yaw_kp * bearing,
+            self.yaw_sign * self.yaw_kp * yaw_error,
             -self.max_yaw_speed_radps,
             self.max_yaw_speed_radps,
         )
 
-        if abs(bearing) > self.turn_in_place_bearing_rad:
+        if abs(bearing) > max(self.walk_with_turn_bearing_rad, self.centered_bearing_rad):
             return 0.0, yaw
 
+        yaw = self.clamp(
+            yaw,
+            -self.max_walk_yaw_speed_radps,
+            self.max_walk_yaw_speed_radps,
+        )
+
+        approach_distance = self.estimate_person_distance(person, front)
         distance_scale = 1.0
-        if person.distance_valid:
-            remaining = max(float(person.distance_m) - self.stop_distance_m, 0.0)
-            distance_scale = self.clamp(remaining / 1.0, 0.0, 1.0)
+        if approach_distance is not None:
+            remaining = max(approach_distance - self.stop_distance_m, 0.0)
+            if remaining <= 0.0:
+                return 0.0, yaw
+            distance_scale = self.clamp(
+                remaining / max(self.approach_slowdown_distance_m, 0.05),
+                0.0,
+                1.0,
+            )
 
         bearing_scale = self.clamp(
             1.0 - abs(bearing) / max(self.turn_in_place_bearing_rad, 0.01),
-            0.0,
+            self.min_bearing_speed_scale,
             1.0,
         )
-        speed = self.forward_speed_mps * max(distance_scale, 0.2) * bearing_scale
+        speed = self.forward_speed_mps * distance_scale * bearing_scale
 
-        if abs(bearing) <= self.centered_bearing_rad:
+        if distance_scale > 0.0:
             speed = max(speed, self.min_forward_speed_mps)
 
-        if math.isfinite(front):
+        if math.isfinite(front) and not self.front_return_matches_person(person, front):
             obstacle_margin = front - self.obstacle_stop_distance_m
             if obstacle_margin <= 0.0:
                 speed = 0.0
@@ -274,12 +323,61 @@ class ApproachPersonNode(Node):
 
         return speed, yaw
 
-    def has_arrived(self, person: PersonTrack):
-        if not person.distance_valid:
+    def estimate_person_distance(self, person: PersonTrack, front: float):
+        distance = None
+        if person.distance_valid:
+            distance = float(person.distance_m)
+        elif self.front_return_matches_person(person, front):
+            distance = float(front)
+
+        now = time.monotonic()
+        if distance is not None:
+            self.last_approach_distance = distance
+            self.last_approach_distance_time = now
+            return distance
+
+        if (
+            self.last_approach_distance is not None
+            and now - self.last_approach_distance_time <= self.distance_memory_s
+        ):
+            return self.last_approach_distance
+
+        return None
+
+    def centered_yaw_error(self, bearing: float) -> float:
+        deadband = max(self.centered_bearing_rad, 0.0)
+        abs_bearing = abs(bearing)
+        if abs_bearing <= deadband:
+            return 0.0
+        return math.copysign(abs_bearing - deadband, bearing)
+
+    def front_return_matches_person(self, person: PersonTrack, front: float) -> bool:
+        if person is None or not math.isfinite(front):
             return False
+
+        if abs(float(person.bearing_rad)) > self.person_obstacle_bearing_gate_rad:
+            return False
+
+        if front < self.obstacle_stop_distance_m:
+            return False
+
+        if not person.distance_valid:
+            return front <= self.centered_front_is_person_max_distance_m
+
+        return (
+            abs(float(person.distance_m) - float(front))
+            <= self.person_obstacle_distance_tolerance_m
+        )
+
+    def has_arrived(self, person: PersonTrack, front: float):
         if abs(float(person.bearing_rad)) > self.arrival_centered_bearing_rad:
             return False
-        return float(person.distance_m) <= self.stop_distance_m + self.distance_tolerance_m
+
+        approach_distance = self.estimate_person_distance(person, front)
+        if approach_distance is None:
+            return False
+
+        return approach_distance <= self.stop_distance_m + self.distance_tolerance_m
 
     def arrive_and_sit(self):
         self.phase = "arrived"
@@ -364,18 +462,24 @@ class ApproachPersonNode(Node):
         return max(0, min(idx, len(scan.ranges) - 1))
 
     def publish_move(self, vx: float, vyaw: float):
-        msg = Twist()
-        msg.linear.x = float(vx)
-        msg.angular.z = float(vyaw)
-        self.cmd_vel_pub.publish(msg)
+        msg = Go2Command()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.command_type = Go2Command.MOVE
+        msg.twist_command.linear.x = float(vx)
+        msg.twist_command.angular.z = float(vyaw)
+        self.command_pub.publish(msg)
+        self._last_vx = float(vx)
+        self._last_vyaw = float(vyaw)
 
     def publish_command(self, command: str, force: bool = False):
         if not force and command == self._last_command:
             return
 
-        msg = String()
-        msg.data = command
-        self.trigger_pub.publish(msg)
+        msg = Go2Command()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.command_type = Go2Command.TRICK
+        msg.trick_name = command
+        self.command_pub.publish(msg)
         self._last_command = command
 
     def maybe_log(self, status: str, front: float):
@@ -394,20 +498,28 @@ class ApproachPersonNode(Node):
                 "%.2fm" % person.distance_m if person.distance_valid else "invalid"
             )
             self.get_logger().info(
-                "phase=%s status=%s front=%s bearing=%.2f distance=%s"
-                % (self.phase, status, front_text, person.bearing_rad, distance_text)
+                "phase=%s status=%s front=%s bearing=%.2f distance=%s "
+                "cmd=(%.2f, %.2f)"
+                % (
+                    self.phase,
+                    status,
+                    front_text,
+                    person.bearing_rad,
+                    distance_text,
+                    self._last_vx,
+                    self._last_vyaw,
+                )
             )
         else:
             self.get_logger().info(
-                "phase=%s status=%s front=%s no_person"
-                % (self.phase, status, front_text)
+                "phase=%s status=%s front=%s no_person cmd=(%.2f, %.2f)"
+                % (self.phase, status, front_text, self._last_vx, self._last_vyaw)
             )
 
     def clamp(self, value: float, lo: float, hi: float) -> float:
         return max(lo, min(hi, value))
 
     def destroy_node(self):
-        self.publish_move(0.0, 0.0)
         super().destroy_node()
 
 
