@@ -38,7 +38,7 @@ class MuxNode(Node):
         }
         # General robot state trick/avoid/wander
         self.active_teir = 'none'
-        # Allowed states, move/sit/rise_sit/
+        # Allowed states, move/sit/rise_sit/.....
         self.robot_state = 'none'
 
         self.wander_begin_timeout = 0.5 # So wander commands are only executed when fresh!

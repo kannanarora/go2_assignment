@@ -35,10 +35,17 @@ class WanderNode(Node):
         self.max_walk_distance_m = float(
             self.declare_parameter("max_walk_distance_m", 0.25).value
         )
-        # TODO custom duration for each trick
+
+        # Stretch is 5 seconds
+        # Stand is 5 seconds
+        # Sit is 1-1.5 seconds
         self.trick_duration = float(
             self.declare_parameter("trick_duration_s", 5).value
         )
+        self.bark_duration = float(
+            self.declare_parameter("bark_duration_s", 1).value
+        )
+
         self.command_rate_hz = float(
             self.declare_parameter("command_rate_hz", 1).value
         )
@@ -61,8 +68,9 @@ class WanderNode(Node):
             'sit': [('rise_sit', 0.75), ('sit', 0.25)],
             'rise_sit': [('walk', 0.5), ('turn', 0.5)],
             'walk': [('turn', 0.6), ('stretch', 0.2), ('sit', 0.2)],
-            'turn': [('walk', 0.3), ('turn', 0.2), ('stretch', 0.2), ('sit', 0.2)],
+            'turn': [('walk', 0.3), ('turn', 0.2), ('stretch', 0.1), ('bark', 0.1), ('sit', 0.2)],
             'stretch': [('walk', 0.6), ('turn', 0.4)],
+            'bark': [('walk', 0.3), ('turn', 0.2), ('stretch', 0.1), ('bark', 0.2), ('sit', 0.2)],
         }
 
         # Tick timer
@@ -142,7 +150,7 @@ class WanderNode(Node):
         self.publish_command('bark', force=True)
         
         self.get_logger().info('PUBLISHED BARK')
-        duration = max(abs(self.trick_duration), 0.01)
+        duration = max(abs(self.bark_duration), 0.01)
         self.set_phase("bark", duration)
         return
 
