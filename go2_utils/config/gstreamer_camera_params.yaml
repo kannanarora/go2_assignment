@@ -19,6 +19,6 @@ gstreamer_camera_node:
     depay_request_keyframe: true
     h264_config_interval: -1
     disable_dpb: false
-    raw_max_fps: 15.0
+    raw_max_fps: 0.0
     compressed_max_fps: 5.0
     jpeg_quality: 90
