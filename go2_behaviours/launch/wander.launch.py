@@ -24,6 +24,7 @@ def generate_launch_description():
 
     enable_voice = LaunchConfiguration("enable_voice")
     enable_random_bark = LaunchConfiguration("enable_random_bark")
+    enable_dog_sounds = LaunchConfiguration("enable_dog_sounds")
 
     utils_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -51,6 +52,7 @@ def generate_launch_description():
         launch_arguments={
             "trigger_topic": "/trigger_behaviour",
             "enable_random_bark": enable_random_bark,
+            "enable_dog_sounds": enable_dog_sounds,
         }.items(),
     )
 
@@ -61,6 +63,11 @@ def generate_launch_description():
                 "enable_random_bark",
                 default_value="false",
                 description="Publish random bark tokens on /trigger_behaviour",
+            ),
+            DeclareLaunchArgument(
+                "enable_dog_sounds",
+                default_value="true",
+                description="Run ambient/event dog sounds observer node",
             ),
             utils_launch,
             whisper_launch,
