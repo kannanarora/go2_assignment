@@ -1,0 +1,33 @@
+dog_sounds_node:
+  ros__parameters:
+    cmd_vel_topic: /cmd_vel
+    trigger_topic: /trigger_behaviour
+
+    # EVENT tier: "<token>:<audiohub_file_name>" played one-shot on trigger
+    event_sound_map:
+      - "stretch:go2_breathing"
+      - "bark:go2_bark"
+      - "speak:go2_bark"
+
+    # AMBIENT tier
+    panting_clips:
+      - "go2_panting1"
+      - "go2_panting2"
+      - "go2_panting3"
+    breathing_clip: "go2_breathing"
+
+    # what counts as "moving" from /cmd_vel
+    move_speed_threshold: 0.05
+    cmd_timeout_s: 0.5
+
+    # panting cadence (irregular, not constant)
+    pant_min_gap_s: 4.0
+    pant_probability: 0.4
+
+    # idle breathing (rare)
+    idle_breathe_gap_s: 20.0
+    breathe_probability: 0.2
+
+    # speaker busy window after a clip starts, so ambient won't stomp events
+    busy_cooldown_s: 2.0
+    ambient_rate_hz: 2.0
