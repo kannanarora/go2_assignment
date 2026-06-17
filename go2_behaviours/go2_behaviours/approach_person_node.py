@@ -520,7 +520,6 @@ class ApproachPersonNode(Node):
         return max(lo, min(hi, value))
 
     def destroy_node(self):
-        self.publish_move(0.0, 0.0)
         super().destroy_node()
 
 
