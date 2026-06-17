@@ -32,7 +32,7 @@ class MuxNode(Node):
         # STATE STORAGE
         # We store the latest message and the time it was received
         self.state = {
-            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 4}, # Priority 1 (Highest)
+            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 1}, # Priority 1 (Highest)
             'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 1}, # Priority 2
             'wander': {'msg': Go2Command(), 'time': None, 'timeout': 6}  # Priority 3 (Lowest)
         }
