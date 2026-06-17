@@ -20,8 +20,8 @@ wander_node:
   ros__parameters:
     trigger_topic: /wander_cmd
     bark_topic: /bark
-    forward_speed_mps: 0.66
-    turn_speed_radps: 1.26
+    forward_speed_mps: 0.50
+    turn_speed_radps: 1.00
     min_turn_deg: 35.0
     max_turn_deg: 160.0
     min_walk_distance_m: 1.2
@@ -36,10 +36,10 @@ obstacle_avoid_node:
   ros__parameters:
     scan_topic: /front_scan
     command_topic: /avoidance_cmd
-    turn_speed_radps: 1.26
-    avoid_turn_speed_radps: 1.35
-    avoid_threshold_m: 1.45
-    clear_threshold_m: 1.75
+    turn_speed_radps: 1.00
+    avoid_turn_speed_radps: 1.10
+    avoid_threshold_m: 1.00
+    clear_threshold_m: 1.25
     front_half_angle_deg: 18.0
     side_sector_min_deg: 25.0
     side_sector_max_deg: 80.0
@@ -99,8 +99,8 @@ voice_command_mapper_node:
     command_topic: /trick_cmd
     cooldown_sec: 2.0
     fuzzy_threshold: 0.8
-    forward_speed_mps: 0.66
-    turn_speed_radps: 1.26
+    forward_speed_mps: 0.50
+    turn_speed_radps: 1.00
     trick_hold_sec: 0.6
     move_duration_sec: 2.0
     turn_duration_sec: 1.0
