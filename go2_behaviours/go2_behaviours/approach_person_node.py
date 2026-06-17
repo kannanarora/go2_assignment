@@ -4,8 +4,7 @@ import math
 import time
 
 import rclpy
-from geometry_msgs.msg import Twist
-from go2_interfaces.msg import PersonTrack
+from go2_interfaces.msg import Go2Command, PersonTrack
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -14,7 +13,6 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import String
 
 
 class ApproachPersonNode(Node):
@@ -25,9 +23,9 @@ class ApproachPersonNode(Node):
             "person_track_topic", "/person_track"
         ).value
         self.scan_topic = self.declare_parameter("scan_topic", "/front_scan").value
-        self.cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
-        self.trigger_topic = self.declare_parameter(
-            "trigger_topic", "/trigger_behaviour"
+        self.command_topic = self.declare_parameter(
+            "command_topic",
+            "/approach_cmd",
         ).value
 
         self.stop_distance_m = float(
@@ -52,15 +50,15 @@ class ApproachPersonNode(Node):
             self.declare_parameter("search_yaw_speed_radps", 0.45).value
         )
         self.max_yaw_speed_radps = float(
-            self.declare_parameter("max_yaw_speed_radps", 0.55).value
+            self.declare_parameter("max_yaw_speed_radps", 0.45).value
         )
-        self.yaw_kp = float(self.declare_parameter("yaw_kp", 1.2).value)
+        self.yaw_kp = float(self.declare_parameter("yaw_kp", 0.95).value)
         self.yaw_sign = float(self.declare_parameter("yaw_sign", 1.0).value)
         self.centered_bearing_rad = float(
             self.declare_parameter("centered_bearing_rad", 0.08).value
         )
         self.turn_in_place_bearing_rad = float(
-            self.declare_parameter("turn_in_place_bearing_rad", 0.40).value
+            self.declare_parameter("turn_in_place_bearing_rad", 0.65).value
         )
         self.min_person_confidence = float(
             self.declare_parameter("min_person_confidence", 0.40).value
@@ -153,8 +151,7 @@ class ApproachPersonNode(Node):
             durability=DurabilityPolicy.VOLATILE,
         )
 
-        self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
-        self.trigger_pub = self.create_publisher(String, self.trigger_topic, 10)
+        self.command_pub = self.create_publisher(Go2Command, self.command_topic, 10)
         self.person_sub = self.create_subscription(
             PersonTrack,
             self.person_track_topic,
@@ -203,12 +200,10 @@ class ApproachPersonNode(Node):
 
     def tick(self):
         if self.finished:
-            self.publish_move(0.0, 0.0)
             return
 
         now = time.monotonic()
         if self.phase == "arrived":
-            self.publish_move(0.0, 0.0)
             self.publish_arrival_command_if_due(now)
             return
 
@@ -415,10 +410,11 @@ class ApproachPersonNode(Node):
         return max(0, min(idx, len(scan.ranges) - 1))
 
     def publish_move(self, vx: float, vyaw: float):
-        msg = Twist()
-        msg.linear.x = float(vx)
-        msg.angular.z = float(vyaw)
-        self.cmd_vel_pub.publish(msg)
+        msg = Go2Command()
+        msg.command_type = Go2Command.MOVE
+        msg.twist_command.linear.x = float(vx)
+        msg.twist_command.angular.z = float(vyaw)
+        self.command_pub.publish(msg)
         self._last_vx = float(vx)
         self._last_vyaw = float(vyaw)
 
@@ -426,9 +422,10 @@ class ApproachPersonNode(Node):
         if not force and command == self._last_command:
             return
 
-        msg = String()
-        msg.data = command
-        self.trigger_pub.publish(msg)
+        msg = Go2Command()
+        msg.command_type = Go2Command.TRICK
+        msg.trick_name = command
+        self.command_pub.publish(msg)
         self._last_command = command
 
     def maybe_log(self, status: str, front: float):

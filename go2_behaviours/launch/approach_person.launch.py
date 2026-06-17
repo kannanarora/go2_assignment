@@ -35,6 +35,12 @@ def generate_launch_description():
             ),
             Node(
                 package="go2_behaviours",
+                executable="mux_node",
+                name="mux_node",
+                output="screen",
+            ),
+            Node(
+                package="go2_behaviours",
                 executable="approach_person_node",
                 name="approach_person_node",
                 output="screen",
