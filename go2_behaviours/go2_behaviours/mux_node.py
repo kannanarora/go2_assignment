@@ -79,16 +79,13 @@ class MuxNode(Node):
         # Check in order of highest priority to lowest
         if self.is_active('avoid', now):
             selected_msg = self.state['avoid']['msg']
-            self.active_teir = 'avoid'
+            self.active_tier = 'avoid'
         elif self.is_active('trick', now):
             selected_msg = self.state['trick']['msg']
             self.active_tier = 'trick'
         elif self.is_active('approach', now):
             selected_msg = self.state['approach']['msg']
             self.active_tier = 'approach'
-        elif self.is_active('avoid', now):
-            selected_msg = self.state['avoid']['msg']
-            self.active_tier = 'avoid'
         elif self.is_active('wander', now) and self.should_wander():
             selected_msg = self.state['wander']['msg']
             self.active_tier = 'wander'
