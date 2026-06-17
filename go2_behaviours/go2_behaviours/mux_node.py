@@ -130,6 +130,16 @@ class MuxNode(Node):
                 return # Block the intended command while rising
             # If tick is >= 4, it falls through to normal execution below!
 
+        # --- NEW STRETCH INTERCEPTOR START ---
+        # 3.5 INTERCEPTOR: If currently stretching, block all other commands for 20 ticks (5 seconds)
+        if self.robot_state['mode'] == 'stretch':
+            if self.robot_state['tick'] < 20:
+                self.robot_state['tick'] += 1
+                self.get_logger().info(f"INTERCEPT: Waiting for stretch to finish ({self.robot_state['tick']}/20)...")
+                return # Block all incoming commands while stretching
+            # If tick is >= 20, the stretch is over and it falls through to normal execution!
+        # --- NEW STRETCH INTERCEPTOR END ---
+
         # 4. NORMAL EXECUTION
         if msg.command_type == Go2Command.TRICK:
             s = String()
