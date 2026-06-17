@@ -29,36 +29,36 @@ class ApproachPersonNode(Node):
         ).value
 
         self.stop_distance_m = float(
-            self.declare_parameter("stop_distance_m", 0.75).value
+            self.declare_parameter("stop_distance_m", 0.95).value
         )
         self.distance_tolerance_m = float(
             self.declare_parameter("distance_tolerance_m", 0.08).value
         )
         self.forward_speed_mps = float(
-            self.declare_parameter("forward_speed_mps", 0.34).value
+            self.declare_parameter("forward_speed_mps", 0.30).value
         )
         self.min_forward_speed_mps = float(
-            self.declare_parameter("min_forward_speed_mps", 0.12).value
+            self.declare_parameter("min_forward_speed_mps", 0.10).value
         )
         self.approach_slowdown_distance_m = float(
-            self.declare_parameter("approach_slowdown_distance_m", 0.25).value
+            self.declare_parameter("approach_slowdown_distance_m", 0.35).value
         )
         self.min_bearing_speed_scale = float(
-            self.declare_parameter("min_bearing_speed_scale", 0.65).value
+            self.declare_parameter("min_bearing_speed_scale", 0.50).value
         )
         self.search_yaw_speed_radps = float(
-            self.declare_parameter("search_yaw_speed_radps", 0.65).value
+            self.declare_parameter("search_yaw_speed_radps", 0.55).value
         )
         self.max_yaw_speed_radps = float(
-            self.declare_parameter("max_yaw_speed_radps", 0.75).value
+            self.declare_parameter("max_yaw_speed_radps", 0.55).value
         )
-        self.yaw_kp = float(self.declare_parameter("yaw_kp", 1.25).value)
+        self.yaw_kp = float(self.declare_parameter("yaw_kp", 0.90).value)
         self.yaw_sign = float(self.declare_parameter("yaw_sign", 1.0).value)
         self.centered_bearing_rad = float(
-            self.declare_parameter("centered_bearing_rad", 0.08).value
+            self.declare_parameter("centered_bearing_rad", 0.12).value
         )
         self.turn_in_place_bearing_rad = float(
-            self.declare_parameter("turn_in_place_bearing_rad", 0.80).value
+            self.declare_parameter("turn_in_place_bearing_rad", 0.60).value
         )
         self.min_person_confidence = float(
             self.declare_parameter("min_person_confidence", 0.40).value
@@ -265,8 +265,9 @@ class ApproachPersonNode(Node):
 
     def approach_command(self, person: PersonTrack, front: float):
         bearing = float(person.bearing_rad)
+        yaw_error = self.centered_yaw_error(bearing)
         yaw = self.clamp(
-            self.yaw_sign * self.yaw_kp * bearing,
+            self.yaw_sign * self.yaw_kp * yaw_error,
             -self.max_yaw_speed_radps,
             self.max_yaw_speed_radps,
         )
@@ -301,6 +302,13 @@ class ApproachPersonNode(Node):
                 speed *= self.clamp(obstacle_margin / 0.5, 0.0, 1.0)
 
         return speed, yaw
+
+    def centered_yaw_error(self, bearing: float) -> float:
+        deadband = max(self.centered_bearing_rad, 0.0)
+        abs_bearing = abs(bearing)
+        if abs_bearing <= deadband:
+            return 0.0
+        return math.copysign(abs_bearing - deadband, bearing)
 
     def front_return_matches_person(self, person: PersonTrack, front: float) -> bool:
         if person is None or not math.isfinite(front):
