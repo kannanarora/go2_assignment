@@ -61,9 +61,8 @@ class WanderNode(Node):
 
         # Stretch is 5 seconds
         # Stand is 5 seconds
-        # Sit is 1-1.5 seconds
         self.trick_duration = float(
-            self.declare_parameter("trick_duration_s", 5.5).value
+            self.declare_parameter("trick_duration_s", 5.0).value
         )
         self.bark_duration = float(
             self.declare_parameter("bark_duration_s", 1).value
@@ -84,12 +83,11 @@ class WanderNode(Node):
         self.cmd_pub = self.create_publisher(Go2Command, self.trigger_topic, 10)
         self.bark_pub = self.create_publisher(String, self.bark_topic, 10)
 
-        # Actions: walk, turn, sit, stretch, bark, rise_sit
+        # Actions: walk, turn, sit, stretch, bark TODO
 
         # Markov table
         self.transitions = {
-            'sit': [('rise_sit', 0.75), ('sit', 0.25)],
-            'rise_sit': [('walk', 0.5), ('turn', 0.5)],
+            'sit': [('walk', 0.75), ('sit', 0.25)],
             'walk': [('turn', 0.6), ('stretch', 0.2), ('sit', 0.2)],
             'turn': [('walk', 0.3), ('turn', 0.2), ('stretch', 0.1), ('bark', 0.1), ('sit', 0.2)],
             'stretch': [('walk', 0.6), ('turn', 0.4)],

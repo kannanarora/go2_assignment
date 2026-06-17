@@ -39,7 +39,7 @@ class MuxNode(Node):
         # General robot state trick/avoid/wander
         self.active_teir = 'none'
         # Allowed states, move/sit/rise_sit/.....
-        self.robot_state = 'none'
+        self.robot_state = {'mode': 'none', 'tick': 0}
 
         self.wander_begin_timeout = 0.5 # So wander commands are only executed when fresh!
         
@@ -111,23 +111,31 @@ class MuxNode(Node):
             s = String()
             s.data = msg.trick_name
             # Only send go2 trick command once
-            if self.robot_state != msg.trick_name:
-                self.get_logger().info(f"PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
+            if self.robot_state['mode'] != msg.trick_name:
                 self.trigger_behaviour_pub.publish(s)
-                self.robot_state = msg.trick_name
-            self.get_logger().info(f"SKIPPING PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
+                self.robot_state = {'mode': msg.trick_name, 'tick': 0}
+                self.get_logger().info(f"PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
+            else:
+                self.get_logger().info(f"SKIPPING PUBLISH TRICK: {self.robot_state}; FOR TIER: {self.active_teir}")
+                self.robot_state['tick'] = self.robot_state['tick'] + 1
         elif msg.command_type == Go2Command.MOVE:
-            self.robot_state = 'move'
+            if self.robot_state['mode'] == 'move':
+                self.robot_state['tick'] = self.robot_state['tick'] + 1
+            else:
+                self.robot_state = {'mode': 'move', 'tick': 0}
             self.cmd_vel_pub.publish(msg.twist_command)
             self.get_logger().info(f"PUBLISH MOVE: {self.robot_state}; FOR TIER: {self.active_teir}")
         else:
             # If empty command or STAY, just make go2 balance stand
             s = String()
             s.data = 'balance_stand'
-            self.robot_state = 'stand'
-            self.trigger_behaviour_pub.publish(s)
-            self.get_logger().info(f"PUBLISHING STAND: {self.robot_state}; FOR TIER: {self.active_teir}")
-
+            if self.robot_state['mode'] == 'stand':
+                self.robot_state['tick'] = self.robot_state['tick'] + 1
+                self.get_logger().info(f"SKIPPING PUBLISHING STAND: {self.robot_state}; FOR TIER: {self.active_teir}")
+            else:
+                self.robot_state = {'mode': 'stand', 'tick': 0}
+                self.get_logger().info(f"PUBLISH STAND: {self.robot_state}; FOR TIER: {self.active_teir}")
+                self.trigger_behaviour_pub.publish(s)
 
     # Check if message is recent enough to be action
     def is_active(self, source, current_time):
