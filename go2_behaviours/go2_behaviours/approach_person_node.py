@@ -52,6 +52,15 @@ class ApproachPersonNode(Node):
         self.max_yaw_speed_radps = float(
             self.declare_parameter("max_yaw_speed_radps", 0.55).value
         )
+        self.max_linear_accel_mps2 = float(
+            self.declare_parameter("max_linear_accel_mps2", 0.35).value
+        )
+        self.max_linear_decel_mps2 = float(
+            self.declare_parameter("max_linear_decel_mps2", 0.55).value
+        )
+        self.max_yaw_accel_radps2 = float(
+            self.declare_parameter("max_yaw_accel_radps2", 1.20).value
+        )
         self.yaw_kp = float(self.declare_parameter("yaw_kp", 0.90).value)
         self.yaw_sign = float(self.declare_parameter("yaw_sign", 1.0).value)
         self.centered_bearing_rad = float(
@@ -141,6 +150,7 @@ class ApproachPersonNode(Node):
         self.next_arrival_command_time = 0.0
         self._last_vx = 0.0
         self._last_vyaw = 0.0
+        self._last_move_time = time.monotonic()
         self._last_command = None
         self._last_log_time = 0.0
 
@@ -232,7 +242,7 @@ class ApproachPersonNode(Node):
             self.maybe_log("scan_stale", front)
             return
 
-        if person_visible and self.has_arrived(self.latest_person):
+        if person_visible and self.has_arrived(self.latest_person, front):
             if self.arrival_candidate_since == 0.0:
                 self.arrival_candidate_since = now
             if now - self.arrival_candidate_since >= self.arrival_confirm_s:
@@ -275,9 +285,10 @@ class ApproachPersonNode(Node):
         if abs(bearing) > self.turn_in_place_bearing_rad:
             return 0.0, yaw
 
+        approach_distance = self.estimate_person_distance(person, front)
         distance_scale = 1.0
-        if person.distance_valid:
-            remaining = max(float(person.distance_m) - self.stop_distance_m, 0.0)
+        if approach_distance is not None:
+            remaining = max(approach_distance - self.stop_distance_m, 0.0)
             distance_scale = self.clamp(
                 remaining / max(self.approach_slowdown_distance_m, 0.05),
                 0.0,
@@ -302,6 +313,15 @@ class ApproachPersonNode(Node):
                 speed *= self.clamp(obstacle_margin / 0.5, 0.0, 1.0)
 
         return speed, yaw
+
+    def estimate_person_distance(self, person: PersonTrack, front: float):
+        if person.distance_valid:
+            return float(person.distance_m)
+
+        if self.front_return_matches_person(person, front):
+            return float(front)
+
+        return None
 
     def centered_yaw_error(self, bearing: float) -> float:
         deadband = max(self.centered_bearing_rad, 0.0)
@@ -328,12 +348,15 @@ class ApproachPersonNode(Node):
             <= self.person_obstacle_distance_tolerance_m
         )
 
-    def has_arrived(self, person: PersonTrack):
-        if not person.distance_valid:
-            return False
+    def has_arrived(self, person: PersonTrack, front: float):
         if abs(float(person.bearing_rad)) > self.arrival_centered_bearing_rad:
             return False
-        return float(person.distance_m) <= self.stop_distance_m + self.distance_tolerance_m
+
+        approach_distance = self.estimate_person_distance(person, front)
+        if approach_distance is None:
+            return False
+
+        return approach_distance <= self.stop_distance_m + self.distance_tolerance_m
 
     def arrive_and_sit(self):
         self.phase = "arrived"
@@ -418,13 +441,37 @@ class ApproachPersonNode(Node):
         return max(0, min(idx, len(scan.ranges) - 1))
 
     def publish_move(self, vx: float, vyaw: float):
+        vx, vyaw = self.smooth_move(float(vx), float(vyaw))
         msg = Go2Command()
         msg.command_type = Go2Command.MOVE
-        msg.twist_command.linear.x = float(vx)
-        msg.twist_command.angular.z = float(vyaw)
+        msg.twist_command.linear.x = vx
+        msg.twist_command.angular.z = vyaw
         self.command_pub.publish(msg)
-        self._last_vx = float(vx)
-        self._last_vyaw = float(vyaw)
+        self._last_vx = vx
+        self._last_vyaw = vyaw
+
+    def smooth_move(self, target_vx: float, target_vyaw: float):
+        now = time.monotonic()
+        dt = self.clamp(now - self._last_move_time, 0.0, 0.5)
+        self._last_move_time = now
+
+        if abs(target_vx) > abs(self._last_vx):
+            accel = self.max_linear_accel_mps2
+        else:
+            accel = self.max_linear_decel_mps2
+        vx = self.limit_delta(self._last_vx, target_vx, max(accel, 0.0) * dt)
+        vyaw = self.limit_delta(
+            self._last_vyaw,
+            target_vyaw,
+            max(self.max_yaw_accel_radps2, 0.0) * dt,
+        )
+
+        return vx, vyaw
+
+    def limit_delta(self, current: float, target: float, max_delta: float) -> float:
+        if max_delta <= 0.0:
+            return target
+        return current + self.clamp(target - current, -max_delta, max_delta)
 
     def publish_command(self, command: str, force: bool = False):
         if not force and command == self._last_command:
