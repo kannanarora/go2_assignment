@@ -1,7 +1,7 @@
 import os
 
 from ament_index_python.packages import get_package_share_directory
-from launch.actions import IncludeLaunchDescription
+from launch.actions import ExecuteProcess, IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch import LaunchDescription
 from launch_ros.actions import Node
@@ -54,7 +54,24 @@ def generate_launch_description():
                 executable="approach_person_node",
                 name="approach_person_node",
                 output="screen",
-                parameters=[behaviour_params, {"active_on_start": True}],
+                parameters=[behaviour_params],
+            ),
+            TimerAction(
+                period=6.0,
+                actions=[
+                    ExecuteProcess(
+                        cmd=[
+                            "ros2",
+                            "topic",
+                            "pub",
+                            "--once",
+                            "/approach_trigger",
+                            "std_msgs/msg/String",
+                            "{data: approach_person}",
+                        ],
+                        output="screen",
+                    ),
+                ],
             ),
         ]
     )

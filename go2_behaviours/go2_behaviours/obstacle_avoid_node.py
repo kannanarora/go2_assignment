@@ -57,6 +57,12 @@ class ObstacleAvoidNode(Node):
         self.max_avoid_turn_s = float(
             self.declare_parameter("max_avoid_turn_s", 8.0).value
         )
+        self.turn_direction_lock_s = float(
+            self.declare_parameter("turn_direction_lock_s", 8.0).value
+        )
+        self.switch_direction_margin_m = float(
+            self.declare_parameter("switch_direction_margin_m", 0.25).value
+        )
 
         self.stop_duration_s = float(
             self.declare_parameter("stop_duration_s", 0.4).value
@@ -81,6 +87,7 @@ class ObstacleAvoidNode(Node):
         self.phase = "idle"
         self.phase_end_time = 0.0
         self.turn_direction = 1.0
+        self.turn_direction_lock_until = 0.0
         self._last_log_time = 0.0
         self._active = False
 
@@ -147,6 +154,7 @@ class ObstacleAvoidNode(Node):
             self.publish_move(0.0, 0.0)
         elif self.phase in ("avoid_turn", "avoid_extra_turn"):
             self._active = True
+            self.maybe_switch_turn_direction()
             self.publish_move(0.0, self.turn_direction * self.current_turn_speed())
         else:
             self._active = False
@@ -164,7 +172,10 @@ class ObstacleAvoidNode(Node):
             self.set_phase("idle", 0.0)
 
     def start_avoidance(self):
-        self.turn_direction = self.clearer_turn_direction()
+        now = time.monotonic()
+        if now >= self.turn_direction_lock_until:
+            self.turn_direction = self.clearer_turn_direction()
+        self.turn_direction_lock_until = now + max(self.turn_direction_lock_s, 0.0)
         self.set_phase("avoid_stop", self.stop_duration_s)
 
     def start_avoid_turn(self):
@@ -196,6 +207,31 @@ class ObstacleAvoidNode(Node):
         if math.isfinite(right):
             return -1.0
         return random.choice([-1.0, 1.0])
+
+    def maybe_switch_turn_direction(self):
+        current_side = self.side_clearance(self.turn_direction)
+        opposite_side = self.side_clearance(-self.turn_direction)
+
+        if not math.isfinite(current_side):
+            return
+        if current_side >= self.avoid_threshold_m:
+            return
+        if not math.isfinite(opposite_side):
+            self.turn_direction *= -1.0
+            self.turn_direction_lock_until = (
+                time.monotonic() + max(self.turn_direction_lock_s, 0.0)
+            )
+            return
+        if opposite_side - current_side >= self.switch_direction_margin_m:
+            self.turn_direction *= -1.0
+            self.turn_direction_lock_until = (
+                time.monotonic() + max(self.turn_direction_lock_s, 0.0)
+            )
+
+    def side_clearance(self, direction: float) -> float:
+        if direction >= 0.0:
+            return self.sector_min(self.side_sector_min_deg, self.side_sector_max_deg)
+        return self.sector_min(-self.side_sector_max_deg, -self.side_sector_min_deg)
 
     def scan_is_stale(self, now: float) -> bool:
         if self.latest_scan is None:
