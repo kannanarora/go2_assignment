@@ -49,7 +49,7 @@ class ApproachPersonNode(Node):
             self.declare_parameter("max_yaw_speed_radps", 0.85).value
         )
         self.yaw_kp = float(self.declare_parameter("yaw_kp", 1.6).value)
-        self.yaw_sign = float(self.declare_parameter("yaw_sign", -1.0).value)
+        self.yaw_sign = float(self.declare_parameter("yaw_sign", 1.0).value)
         self.centered_bearing_rad = float(
             self.declare_parameter("centered_bearing_rad", 0.08).value
         )
