@@ -201,13 +201,17 @@ class WanderNode(Node):
             left = self.sector_min(self.side_sector_min_deg, self.side_sector_max_deg)
             right = self.sector_min(-self.side_sector_max_deg, -self.side_sector_min_deg)
             if math.isfinite(left) and left < 1.5 and math.isfinite(right) and right < 1.5:
+                self.get_logger().info('AVOIDING FRONT')
                 return 1.0 if left >= right else -1.0
             if math.isfinite(left) and left < 1.5:
+                self.get_logger().info('AVOIDING LEFT')
                 return 1.0
             if math.isfinite(right) and right < 1.5:
+                self.get_logger().info('AVOIDING RIGHT')
                 return -1.0
         return random.choice([-1.0, 1.0])
 
+    # TODO refactor dupication of this
     def angle_to_index(self, scan: LaserScan, angle_rad: float) -> int:
         # Prevent division by zero
         if scan.angle_increment == 0.0:
@@ -218,7 +222,7 @@ class WanderNode(Node):
         
         # Clamp the index to ensure it stays within the array bounds
         return max(0, min(len(scan.ranges) - 1, index))
-    # TODO refactor dupication of this
+
     def sector_min(self, deg_min: float, deg_max: float) -> float:
         scan = self.latest_scan
         if scan is None or not scan.ranges:
