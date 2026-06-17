@@ -36,6 +36,22 @@ class GStreamerCameraNode(Node):
         self.publish_compressed = bool(
             self.declare_parameter("publish_compressed", True).value
         )
+        self.jitter_latency_ms = int(
+            self.declare_parameter("jitter_latency_ms", 100).value
+        )
+        self.jitter_drop_on_latency = bool(
+            self.declare_parameter("jitter_drop_on_latency", True).value
+        )
+        self.depay_wait_for_keyframe = bool(
+            self.declare_parameter("depay_wait_for_keyframe", True).value
+        )
+        self.depay_request_keyframe = bool(
+            self.declare_parameter("depay_request_keyframe", True).value
+        )
+        self.h264_config_interval = int(
+            self.declare_parameter("h264_config_interval", -1).value
+        )
+        self.disable_dpb = bool(self.declare_parameter("disable_dpb", False).value)
         self.raw_max_fps = float(self.declare_parameter("raw_max_fps", 10.0).value)
         self.compressed_max_fps = float(
             self.declare_parameter("compressed_max_fps", 3.0).value
@@ -97,13 +113,17 @@ class GStreamerCameraNode(Node):
     def build_pipeline(self):
         output_width = self.output_width if self.output_width > 0 else self.width
         output_height = self.output_height if self.output_height > 0 else self.height
+        jitter_pipeline = self.build_jitter_pipeline()
+        depay_pipeline = self.build_depay_pipeline()
+        parser_pipeline = self.build_h264_parser_pipeline()
         decoder_pipeline = self.build_decoder_pipeline(output_width, output_height)
 
         return (
             "udpsrc address=%s port=%d multicast-iface=%s "
-            "! application/x-rtp, media=video, encoding-name=H264 "
-            "! rtph264depay "
-            "! h264parse "
+            "! application/x-rtp,media=video,encoding-name=H264,clock-rate=90000 "
+            "%s "
+            "%s "
+            "%s "
             "%s "
             "! queue max-size-buffers=1 max-size-time=0 max-size-bytes=0 leaky=downstream "
             "! appsink name=sink emit-signals=true max-buffers=1 drop=true sync=false"
@@ -111,8 +131,43 @@ class GStreamerCameraNode(Node):
             self.multicast_address,
             self.port,
             self.interface,
+            jitter_pipeline,
+            depay_pipeline,
+            parser_pipeline,
             decoder_pipeline,
         )
+
+    def build_jitter_pipeline(self):
+        latency = max(0, int(self.jitter_latency_ms))
+        drop_on_latency = self.gst_bool(self.jitter_drop_on_latency)
+        return (
+            "! rtpjitterbuffer latency=%d drop-on-latency=%s do-lost=true"
+            % (latency, drop_on_latency)
+        )
+
+    def build_depay_pipeline(self):
+        properties = []
+        if self.depay_wait_for_keyframe and self.element_has_property(
+            "rtph264depay",
+            "wait-for-keyframe",
+        ):
+            properties.append("wait-for-keyframe=true")
+        if self.depay_request_keyframe and self.element_has_property(
+            "rtph264depay",
+            "request-keyframe",
+        ):
+            properties.append("request-keyframe=true")
+
+        property_text = ""
+        if properties:
+            property_text = " " + " ".join(properties)
+        return "! rtph264depay%s" % property_text
+
+    def build_h264_parser_pipeline(self):
+        if self.element_has_property("h264parse", "config-interval"):
+            return "! h264parse config-interval=%d" % self.h264_config_interval
+
+        return "! h264parse"
 
     def build_decoder_pipeline(self, output_width, output_height):
         decoder = str(self.decoder).lower()
@@ -132,16 +187,50 @@ class GStreamerCameraNode(Node):
             )
 
         self.get_logger().info("Using NVIDIA GStreamer H264 decoder")
+        decoder_properties = []
+        if self.element_has_property("nvv4l2decoder", "enable-max-performance"):
+            decoder_properties.append("enable-max-performance=1")
+        if self.disable_dpb and self.element_has_property(
+            "nvv4l2decoder",
+            "disable-dpb",
+        ):
+            decoder_properties.append("disable-dpb=true")
+
+        decoder_property_text = ""
+        if decoder_properties:
+            decoder_property_text = " " + " ".join(decoder_properties)
+
         return (
-            "! nvv4l2decoder enable-max-performance=1 disable-dpb=true "
+            "! nvv4l2decoder%s "
             "! %s "
             "! video/x-raw,width=%d,height=%d,format=BGRx "
             "! videoconvert "
             "! video/x-raw,width=%d,height=%d,format=BGR"
-        ) % (nvidia_converter, output_width, output_height, output_width, output_height)
+        ) % (
+            decoder_property_text,
+            nvidia_converter,
+            output_width,
+            output_height,
+            output_width,
+            output_height,
+        )
 
     def has_gst_element(self, name):
         return self.Gst.ElementFactory.find(name) is not None
+
+    def element_has_property(self, element_name, property_name):
+        factory = self.Gst.ElementFactory.find(element_name)
+        if factory is None:
+            return False
+
+        element = factory.create(None)
+        if element is None:
+            return False
+
+        return element.find_property(property_name) is not None
+
+    def gst_bool(self, value):
+        return "true" if value else "false"
 
     def nvidia_converter_element(self):
         for name in ("nvvidconv", "nvvideoconvert"):

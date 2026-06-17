@@ -8,11 +8,17 @@ gstreamer_camera_node:
     interface: eth0
     width: 1280
     height: 720
-    output_width: 1280
-    output_height: 720
+    output_width: 640
+    output_height: 360
     decoder: nvidia
     publish_raw: true
     publish_compressed: true
-    raw_max_fps: 0.0
-    compressed_max_fps: 10.0
-    jpeg_quality: 85
+    jitter_latency_ms: 100
+    jitter_drop_on_latency: true
+    depay_wait_for_keyframe: true
+    depay_request_keyframe: true
+    h264_config_interval: -1
+    disable_dpb: false
+    raw_max_fps: 15.0
+    compressed_max_fps: 5.0
+    jpeg_quality: 90
