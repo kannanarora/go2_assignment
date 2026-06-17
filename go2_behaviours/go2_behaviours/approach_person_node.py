@@ -130,9 +130,9 @@ class ApproachPersonNode(Node):
         self.active_on_start = bool(
             self.declare_parameter("active_on_start", False).value
         )
-        self.max_search_s = float(self.declare_parameter("max_search_s", 8.0).value)
+        self.max_search_s = float(self.declare_parameter("max_search_s", 30.0).value)
         self.max_behaviour_s = float(
-            self.declare_parameter("max_behaviour_s", 25.0).value
+            self.declare_parameter("max_behaviour_s", 30.0).value
         )
         self.startup_command = self.declare_parameter(
             "startup_command", "balance_stand"
@@ -276,15 +276,15 @@ class ApproachPersonNode(Node):
             return
 
         now = time.monotonic()
+        if self.phase == "arrived":
+            self.publish_arrival_command_if_due(now)
+            return
+
         if (
             self.max_behaviour_s > 0.0
             and now - self.active_since >= self.max_behaviour_s
         ):
             self.deactivate("behaviour_timeout")
-            return
-
-        if self.phase == "arrived":
-            self.publish_arrival_command_if_due(now)
             return
 
         scan_stale = self.scan_is_stale(now)

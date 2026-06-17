@@ -106,11 +106,11 @@ approach_person_node:
     command_rate_hz: 10.0
     log_rate_hz: 1.0
     active_on_start: false
-    max_search_s: 8.0
-    max_behaviour_s: 25.0
+    max_search_s: 30.0
+    max_behaviour_s: 30.0
     startup_command: balance_stand
     arrival_command: sit
-    arrival_command_repeats: 5
+    arrival_command_repeats: 12
     arrival_command_period_s: 0.25
 
 voice_command_mapper_node:
