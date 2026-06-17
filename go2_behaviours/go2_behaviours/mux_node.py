@@ -30,10 +30,11 @@ class MuxNode(Node):
         # STATE STORAGE
         # We store the latest message and the time it was received
         self.state = {
-            'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 1 (Highest)
-            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 2
-            'approach': {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 3
-            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 6}  # Priority 4 (Lowest)
+            'avoid_people':  {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 1 (Highest)
+            'avoid':  {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 2
+            'trick':  {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 3
+            'approach': {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 4
+            'wander': {'msg': Go2Command(), 'time': None, 'timeout': 6}  # Priority 5 (Lowest)
         }
         # General robot state trick/avoid/wander
         self.active_tier = 'none'
@@ -67,6 +68,12 @@ class MuxNode(Node):
             self.avoid_callback,
             10
         )
+        self.avoid_people_sub = self.create_subscription(
+            Go2Command,
+            "/avoid_people_cmd",
+            self.avoid_people_callback,
+            10
+        )
 
         # CONTROL LOOP (runs at 4Hz / every 0.25 seconds)
         self.timer = self.create_timer(0.25, self.publish_highest_priority)
@@ -77,7 +84,10 @@ class MuxNode(Node):
         selected_msg = Go2Command() # Defaults nil which stops go2
 
         # Check in order of highest priority to lowest
-        if self.is_active('avoid', now):
+        if self.is_active('avoid_people', now):
+            selected_msg = self.state['avoid_people']['msg']
+            self.active_tier = 'avoid_people'
+        elif self.is_active('avoid', now):
             selected_msg = self.state['avoid']['msg']
             self.active_tier = 'avoid'
         elif self.is_active('trick', now):
@@ -213,6 +223,10 @@ class MuxNode(Node):
     def avoid_callback(self, msg: Go2Command):
         self.state['avoid']['msg'] = msg
         self.state['avoid']['time'] = self.get_clock().now()
+
+    def avoid_people_callback(self, msg: Go2Command):
+        self.state['avoid_people']['msg'] = msg
+        self.state['avoid_people']['time'] = self.get_clock().now()
 
 def main(args=None):
     rclpy.init(args=args)
