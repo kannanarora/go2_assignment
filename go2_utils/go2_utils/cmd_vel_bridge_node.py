@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import json
+import time
+
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
@@ -22,24 +24,36 @@ class CmdVelBridgeNode(Node):
         self.max_linear_speed_mps = float(self.declare_parameter("max_linear_speed_mps", 0.70).value)
         self.max_lateral_speed_mps = float(self.declare_parameter("max_lateral_speed_mps", 0.35).value)
         self.max_yaw_speed_radps = float(self.declare_parameter("max_yaw_speed_radps", 1.40).value)
-        
+        self.cmd_vel_timeout_s = float(self.declare_parameter("cmd_vel_timeout_s", 0.6).value)
+        self.publish_rate_hz = float(self.declare_parameter("publish_rate_hz", 50.0).value)
+
         self.auto_joystick_control = bool(self.declare_parameter("auto_joystick_control", True).value)
 
         # State tracking for joystick toggling
         self._joystick_disabled_for_move = False
+        self._last_cmd_time = None
+        self._last_motion_commanded = False
+        self._timeout_reported = False
 
         # Subscriber
         self.cmd_vel_sub = self.create_subscription(Twist, self.cmd_vel_topic, self.cmd_vel_callback, 10)
-        
+
         # Publisher
         self.request_pub = self.create_publisher(Request, self.request_topic, 10)
+        self.timeout_timer = self.create_timer(
+            1.0 / max(self.publish_rate_hz, 1.0),
+            self.check_cmd_vel_timeout,
+        )
 
     def cmd_vel_callback(self, msg: Twist):
         vx = self.clamp(msg.linear.x, -self.max_linear_speed_mps, self.max_linear_speed_mps)
         vy = self.clamp(msg.linear.y, -self.max_lateral_speed_mps, self.max_lateral_speed_mps)
         vyaw = self.clamp(msg.angular.z, -self.max_yaw_speed_radps, self.max_yaw_speed_radps)
 
-        is_moving = abs(vx) > 0.0 or abs(vy) > 0.0 or abs(vyaw) > 0.0
+        is_moving = self.has_motion(vx, vy, vyaw)
+        self._last_cmd_time = time.monotonic()
+        self._last_motion_commanded = is_moving
+        self._timeout_reported = False
 
         if self.auto_joystick_control:
             if is_moving:
@@ -53,6 +67,25 @@ class CmdVelBridgeNode(Node):
         params = {"x": float(vx), "y": float(vy), "z": float(vyaw)}
         req = self.build_request(SPORT_API_ID_MOVE, params, noreply=True)
         self.request_pub.publish(req)
+
+    def check_cmd_vel_timeout(self):
+        if self.cmd_vel_timeout_s <= 0.0:
+            return
+        if self._last_cmd_time is None or not self._last_motion_commanded:
+            return
+        if time.monotonic() - self._last_cmd_time < self.cmd_vel_timeout_s:
+            return
+
+        self.publish_request(SPORT_API_ID_STOP_MOVE)
+        if self.auto_joystick_control:
+            self.enable_joystick_after_move()
+        self._last_motion_commanded = False
+
+        if not self._timeout_reported:
+            self.get_logger().warn(
+                "No /cmd_vel for %.2fs; sent StopMove" % self.cmd_vel_timeout_s
+            )
+            self._timeout_reported = True
 
     def disable_joystick_for_move(self):
         if self._joystick_disabled_for_move:
@@ -83,6 +116,9 @@ class CmdVelBridgeNode(Node):
 
     def clamp(self, value: float, low: float, high: float) -> float:
         return max(low, min(high, float(value)))
+
+    def has_motion(self, vx: float, vy: float, vyaw: float) -> bool:
+        return abs(vx) > 0.001 or abs(vy) > 0.001 or abs(vyaw) > 0.001
 
     def destroy_node(self):
         self.publish_request(SPORT_API_ID_STOP_MOVE)
