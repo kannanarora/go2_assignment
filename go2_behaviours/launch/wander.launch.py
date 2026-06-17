@@ -101,6 +101,13 @@ def generate_launch_description():
             ),
             Node(
                 package="go2_behaviours",
+                executable="bark_node",
+                name="bark_node",
+                output="screen",
+                parameters=[params_file],
+            ),
+            Node(
+                package="go2_behaviours",
                 executable="voice_command_mapper_node",
                 name="voice_command_mapper_node",
                 output="screen",

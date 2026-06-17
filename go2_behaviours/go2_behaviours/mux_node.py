@@ -87,12 +87,12 @@ class MuxNode(Node):
         if self.is_active('avoid_people', now):
             selected_msg = self.state['avoid_people']['msg']
             self.active_tier = 'avoid_people'
-        elif self.is_active('avoid', now):
-            selected_msg = self.state['avoid']['msg']
-            self.active_tier = 'avoid'
         elif self.is_active('trick', now):
             selected_msg = self.state['trick']['msg']
             self.active_tier = 'trick'
+        elif self.is_active('avoid', now):
+            selected_msg = self.state['avoid']['msg']
+            self.active_tier = 'avoid'
         elif self.is_active('approach', now):
             selected_msg = self.state['approach']['msg']
             self.active_tier = 'approach'
