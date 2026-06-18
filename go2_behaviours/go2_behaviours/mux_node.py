@@ -37,6 +37,18 @@ class MuxNode(Node):
             'approach': {'msg': Go2Command(), 'time': None, 'timeout': 1},  # Priority 4
             'wander': {'msg': Go2Command(), 'time': None, 'timeout': 6}  # Priority 5 (Lowest)
         }
+        
+        # Tracking metrics for interrupt logging
+        self.tier_ticks = {
+            'avoid_people': 0,
+            'trick': 0,
+            'avoid': 0,
+            'approach': 0,
+            'wander': 0,
+            'none': 0
+        }
+        self.total_tricks_performed = 0
+
         # General robot state trick/avoid/wander
         self.active_tier = 'none'
         # Allowed states, move/sit/rise_sit/.....
@@ -108,6 +120,11 @@ class MuxNode(Node):
             selected_tier = 'wander'
 
         self.active_tier = selected_tier
+        
+        # Track the ticks for whichever tier is currently active
+        if selected_tier in self.tier_ticks:
+            self.tier_ticks[selected_tier] += 1
+            
         self.publish_command(selected_msg, selected_tier)
 
     # Only begin performing wander if command is fresh
@@ -179,6 +196,7 @@ class MuxNode(Node):
             if self.last_command_key != command_key:
                 self.robot_state = {'mode': msg.trick_name, 'tick': 0}
                 self.last_command_key = command_key
+                self.total_tricks_performed += 1  # Track that a new trick was initiated
 
             # Publish for the first 2 ticks (tick 0 and tick 1)
             if self.robot_state['tick'] < self.trick_publish_ticks:
@@ -285,6 +303,13 @@ def main(args=None):
     node = MuxNode()
     try:
         rclpy.spin(node)
+    except KeyboardInterrupt:
+        # Log the compiled metrics directly to the terminal when Ctrl+C is hit
+        node.get_logger().info("\n--- KeyboardInterrupt caught ---")
+        node.get_logger().info(f"Total Unique Tricks Performed: {node.total_tricks_performed}")
+        node.get_logger().info("Total Ticks per Tier:")
+        for tier, count in node.tier_ticks.items():
+            node.get_logger().info(f"  - {tier}: {count}")
     finally:
         node.destroy_node()
         rclpy.shutdown()

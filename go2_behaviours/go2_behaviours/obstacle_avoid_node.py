@@ -90,6 +90,9 @@ class ObstacleAvoidNode(Node):
         self.turn_direction_lock_until = 0.0
         self._last_log_time = 0.0
         self._active = False
+        
+        # Keep track of the closest distance recorded during the node's lifespan
+        self.closest_distance_recorded = float("inf")
 
         scan_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -125,6 +128,17 @@ class ObstacleAvoidNode(Node):
     def scan_callback(self, scan: LaserScan):
         self.latest_scan = scan
         self.latest_scan_time = time.monotonic()
+        
+        # Calculate and update the closest distance recorded across the entire scan
+        valid_ranges = [
+            r for r in scan.ranges 
+            if math.isfinite(r) and r > 0.0 and scan.range_min <= r <= scan.range_max
+        ]
+        
+        if valid_ranges:
+            current_min = min(valid_ranges)
+            if current_min < self.closest_distance_recorded:
+                self.closest_distance_recorded = current_min
 
     def tick(self):
         now = time.monotonic()
@@ -304,6 +318,16 @@ def main(args=None):
     node = ObstacleAvoidNode()
     try:
         rclpy.spin(node)
+    except KeyboardInterrupt:
+        # Fetch the tracked variable when the script is killed
+        closest = node.closest_distance_recorded
+        dist_str = "%.3fm" % closest if math.isfinite(closest) else "inf"
+        
+        # Log the result directly to the terminal
+        node.get_logger().info(
+            f"\n--- KeyboardInterrupt caught ---\n"
+            f"Closest LIDAR distance recorded during run: {dist_str}"
+        )
     finally:
         node.destroy_node()
         rclpy.shutdown()
