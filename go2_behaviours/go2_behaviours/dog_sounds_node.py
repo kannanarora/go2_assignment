@@ -35,7 +35,7 @@ class DogSoundsNode(Node):
     def __init__(self):
         super().__init__("dog_sounds_node")
 
-        # --- topics ---
+        # topics
         cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
         trigger_topic = self.declare_parameter(
             "trigger_topic", "/trigger_behaviour"
@@ -47,14 +47,14 @@ class DogSoundsNode(Node):
             "sound_trigger_topic", "/dog_sound_trigger"
         ).value
 
-        # --- EVENT tier: token -> file_name played one-shot ---
+        # EVENT tier: token -> file_name played one-shot
         event_map = self.declare_parameter(
             "event_sound_map",
             ["dance:bark2", "sit:bark", "stretch:stretch1",
              "bark:bark", "speak:bark"],
         ).value
 
-        # --- AMBIENT tier ---
+        # AMBIENT tier
         self.panting_clips = self.declare_parameter(
             "panting_clips", ["panting1", "panting2"]
         ).value
@@ -71,9 +71,8 @@ class DogSoundsNode(Node):
             self.declare_parameter("cmd_timeout_s", 0.5).value
         )
 
-        # panting cadence while moving: each pant waits a RANDOM gap in
-        # [min, max] before the next one, and a random clip is chosen, so it
-        # sounds natural rather than a fixed metronome
+        # panting cadence while moving: each pant waits a RANDOM gap in [min, max] before the next one,
+        #  and a random clip is chosen, so it sounds natural rather than fixed
         self.pant_min_gap_s = float(
             self.declare_parameter("pant_min_gap_s", 2.0).value
         )
@@ -88,8 +87,7 @@ class DogSoundsNode(Node):
             self.declare_parameter("idle_breathe_gap_s", 8.0).value
         )
 
-        # after an EVENT clip, suppress ambient for this long so they don't cut
-        # each other off (AudioHub plays one clip at a time)
+        # after an EVENT clip, suppress ambient for this long so they don't cut each other off (AudioHub plays one clip at a time)
         self.event_busy_s = float(
             self.declare_parameter("event_busy_s", 2.0).value
         )
@@ -138,7 +136,7 @@ class DogSoundsNode(Node):
                sorted(self._event_uuids), len(self._pant_uuids))
         )
 
-    # ---- startup resolution ----
+    # startup resolution 
 
     def _resolve(self, file_name):
         uuid = self._client.resolve_uuid(file_name)
@@ -163,7 +161,7 @@ class DogSoundsNode(Node):
                 out[token] = uuid
         return out
 
-    # ---- shared speaker helpers ----
+    # shared speaker helpers
 
     def _busy(self):
         return self.get_clock().now() < self._busy_until
@@ -174,14 +172,13 @@ class DogSoundsNode(Node):
         self._busy_until = self.get_clock().now() + Duration(seconds=self.event_busy_s)
 
     def _play_ambient(self, uuid):
-        # ambient (pant/breathe) does NOT reserve the speaker, so panting can
-        # loop continuously; events still interrupt it via _busy()
+        # ambient (pant/breathe) does NOT reserve the speaker, so panting can loop continuously; events still interrupt it via _busy()
         self._client.play(uuid)
 
     def _seconds_since(self, stamp):
         return (self.get_clock().now() - stamp).nanoseconds / 1e9
 
-    # ---- EVENT tier (high priority) ----
+    # EVENT tier (high priority)
 
     def _play_trigger_token(self, token, source):
         token = token.strip().lower()
@@ -198,10 +195,10 @@ class DogSoundsNode(Node):
         self._play_trigger_token(msg.data, "sound")
 
     def _on_trigger(self, msg: String):
-        # Backward-compatible callback name for old launch files/tests.
+        # Backward-compatible callback name for old launch files/tests
         self._on_behaviour_trigger(msg)
 
-    # ---- motion observation ----
+    # motion observation
 
     def _on_cmd_vel(self, msg: Twist):
         self._last_speed = max(
@@ -216,7 +213,7 @@ class DogSoundsNode(Node):
             return False
         return self._last_speed > self.move_speed_threshold
 
-    # ---- AMBIENT tier (low priority) ----
+    # AMBIENT tier (low priority)
 
     def _ambient_tick(self):
         if self._busy():
