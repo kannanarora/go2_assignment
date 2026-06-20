@@ -29,7 +29,7 @@ COMMAND_RULES = [
     (("stop", "halt", "freeze"), "stop"),
     (("hello", "hey", "wave"), "hello"),
     (("dance", "dancing"), "dance"),
-    (("bark", "speak", "bye", "mark", "arc", "fuck"), "bark"),
+    (("bark", "bye", "mark", "arc"), "bark"),
 ]
 
 TRICK_TOKENS = {"sit", "stand", "lie_down", "stop", "hello", "bark", "dance"}
